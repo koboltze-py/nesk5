@@ -1626,10 +1626,14 @@ class MitarbeiterDokumenteWidget(QWidget):
         self._tabs.setTabVisible(1, is_stell)
         self._btn_verspaetung.setVisible(is_versp)
         self._btn_neu.setVisible(not is_versp)
+        self._tabs.setTabVisible(0, not is_versp)  # Dateien-Tab bei Verspätung ausblenden
         self._tabs.setTabVisible(2, is_versp)
         if is_versp:
+            self._tabs.setCurrentIndex(2)
             self._versp_jahre_aktualisieren()
             self._versp_lade()
+        else:
+            self._tabs.setCurrentIndex(0)
 
         # Filter-Bar für Dateien-Tab bei Stellungnahmen
         self._datei_filter_frame.setVisible(is_stell)
