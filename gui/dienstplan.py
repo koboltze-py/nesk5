@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QTreeView, QSplitter, QFileSystemModel,
     QScrollArea, QCheckBox
 )
-from PySide6.QtCore import Qt, QDate, QTime, Signal
+from PySide6.QtCore import Qt, QDate, QTime, Signal, QFileSystemWatcher
 from PySide6.QtGui import QFont, QColor
 
 from config import FIORI_BLUE, FIORI_TEXT, FIORI_ERROR
@@ -1246,6 +1246,9 @@ class DienstplanWidget(QWidget):
         self._alle: list[Dienstplan]            = []
         self._fs_model: QFileSystemModel | None = None
         self._export_pane_idx: int              = 0   # Index der fuer Export aktiven Pane
+        self._html_generiert:  bool             = False  # True nach erstem HTML-Export
+        self._html_watcher = QFileSystemWatcher(parent=self)
+        self._html_watcher.fileChanged.connect(self._on_excel_geaendert)
         self._build_ui()
 
     def _build_ui(self):
@@ -1276,6 +1279,19 @@ class DienstplanWidget(QWidget):
         )
         word_btn.clicked.connect(self._word_exportieren)
         top.addWidget(word_btn)
+
+        html_btn = QPushButton("🌐  Als Webseite anzeigen")
+        html_btn.setMinimumHeight(36)
+        html_btn.setToolTip(
+            "Dienstplan als HTML-Seite generieren und im Browser öffnen.\n"
+            "Die Seite wird automatisch neu erzeugt, wenn sich die Excel-Datei ändert."
+        )
+        html_btn.setStyleSheet(
+            "background-color: #1e7e34; color: white; "
+            "border-radius: 4px; padding: 0 12px;"
+        )
+        html_btn.clicked.connect(self._html_exportieren)
+        top.addWidget(html_btn)
 
         reload_btn = QPushButton("Neu laden")
         reload_btn.setToolTip("Ordner-Ansicht neu laden")
@@ -1510,6 +1526,45 @@ class DienstplanWidget(QWidget):
         pane.load(path)
         self._set_export_pane(self._export_pane_idx)
 
+    def _watch_excel(self, path: str):
+        """Fügt eine Excel-Datei dem Datei-Watcher hinzu (einmalig)."""
+        if path and path not in self._html_watcher.files():
+            self._html_watcher.addPath(path)
+
+    def _on_excel_geaendert(self, path: str):
+        """
+        Wird aufgerufen wenn eine geladene Excel-Datei auf der Festplatte
+        geändert wird. Erzeugt die HTML-Seite neu – aber nur wenn der
+        Benutzer sie mindestens einmal manuell generiert hat.
+        """
+        if not self._html_generiert:
+            return
+        # Kleines Delay: Excel schreibt manchmal in mehreren Schritten
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(1500, lambda: self._html_auto_update(path))
+
+    def _html_auto_update(self, path: str):
+        """Stille automatische HTML-Aktualisierung nach Dateiänderung."""
+        # Passende Pane suchen
+        for pane in self._panes:
+            if pane.excel_path == path and pane._display_data:
+                try:
+                    from functions.dienstplan_parser import DienstplanParser
+                    result = DienstplanParser(path, alle_anzeigen=True).parse()
+                    if not result.get('success'):
+                        return
+                    from functions.dienstplan_html_export import generiere_html
+                    generiere_html(result)
+                    # Status-Zeile aktualisieren
+                    from datetime import datetime as _dt
+                    pane._status_lbl.setText(
+                        f'🌐 Webseite automatisch aktualisiert – {_dt.now().strftime("%H:%M:%S")}'
+                    )
+                    pane._status_lbl.setStyleSheet('color: #1e7e34; font-weight: bold; padding: 2px 0;')
+                except Exception:
+                    pass
+                return
+
     # ------------------------------------------------------------------
     # Datenladen
     # ------------------------------------------------------------------
@@ -1519,6 +1574,41 @@ class DienstplanWidget(QWidget):
         for pane in self._panes:
             pane.clear()
         self._set_export_pane(0)
+        self._html_generiert = False
+
+    # ------------------------------------------------------------------
+    # HTML-Export (Webseite)
+    # ------------------------------------------------------------------
+
+    def _html_exportieren(self):
+        """Generatert die HTML-Ansicht des aktiven Export-Dienstplans und öffnet sie im Browser."""
+        pane = self._export_pane()
+        if pane._display_data is None:
+            QMessageBox.information(
+                self, "Kein Dienstplan",
+                "Bitte zuerst eine Excel-Datei im Dateibaum laden (Doppelklick)."
+            )
+            return
+        try:
+            from functions.dienstplan_html_export import generiere_html, html_pfad
+            pfad = generiere_html(pane._display_data)
+            self._html_generiert = True
+
+            # Excel in Watcher aufnehmen für automatische Aktualisierung
+            self._watch_excel(pane.excel_path)
+
+            # Im Standard-Browser öffnen
+            import webbrowser
+            url = "file:///" + pfad.replace("\\", "/")
+            webbrowser.open(url)
+
+            pane._status_lbl.setText(
+                f'🌐 Webseite generiert – {os.path.basename(pfad)}'
+            )
+            pane._status_lbl.setStyleSheet('color: #1e7e34; font-weight: bold; padding: 2px 0;')
+
+        except Exception as e:
+            QMessageBox.critical(self, "Fehler beim HTML-Export", f"Fehler:\n{e}")
 
     # ------------------------------------------------------------------
     # Word-Export

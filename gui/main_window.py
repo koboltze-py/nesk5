@@ -29,26 +29,29 @@ from gui.code19           import Code19Widget
 from gui.dokument_browser       import DokumentBrowserWidget
 from gui.mitarbeiter_dokumente  import MitarbeiterDokumenteWidget
 from gui.hilfe_dialog           import HilfeDialog
+from gui.dienstliches           import DienstlichesWidget
 
 
 NAV_ITEMS = [
     ("🏠", "Dashboard",        0),
     ("👥", "Mitarbeiter",       1),
-    ("☀️", "Aufgaben Tag",     2),
-    ("🌙", "Aufgaben Nacht",   3),
-    ("📅", "Dienstplan",       4),
-    ("📋", "Übergabe",         5),
-    ("🚗", "Fahrzeuge",        6),
-    ("🕐", "Code 19",          7),
-    ("🖨️", "Ma. Ausdrucke",   8),
-    ("🤒", "Krankmeldungen",   9),
-    ("💾", "Backup",          10),
-    ("⚙️",  "Einstellungen",  11),
+    ("☕️", "Dienstliches",     2),
+    ("☀️", "Aufgaben Tag",     3),
+    ("🌙", "Aufgaben Nacht",   4),
+    ("📅", "Dienstplan",       5),
+    ("📋", "Übergabe",         6),
+    ("🚗", "Fahrzeuge",        7),
+    ("🕐", "Code 19",          8),
+    ("🖨️", "Ma. Ausdrucke",   9),
+    ("🤒", "Krankmeldungen",  10),
+    ("💾", "Backup",          11),
+    ("⚙️",  "Einstellungen",  12),
 ]
 
 NAV_TOOLTIPS = [
     "Startseite – Statistiken und Übersicht",
     "Mitarbeiter-Dokumente: Stellungnahmen, Bescheinigungen und Word-Dokumente mit DRK-Vorlage erstellen",
+    "Dienstliche Protokolle: Einsätze und Berichte",
     "Tagdienst-Aufgaben, Checklisten und Code-19-Mail",
     "Nachtdienst-Aufgaben und Code-19-Mail",
     "Dienstplan laden, anzeigen und Hausverwaltung exportieren",
@@ -217,6 +220,7 @@ class MainWindow(QMainWindow):
         # Pages
         self._dashboard_page         = DashboardWidget()
         self._mitarbeiter_dok_page   = MitarbeiterDokumenteWidget()
+        self._dienstliches_page      = DienstlichesWidget()
         self._aufgaben_tag_page      = AufgabenTagWidget()
         self._aufgaben_page          = AufgabenWidget()
         self._dienstplan_page        = DienstplanWidget()
@@ -239,6 +243,7 @@ class MainWindow(QMainWindow):
         self._settings_page      = EinstellungenWidget()
 
         for page in [self._dashboard_page, self._mitarbeiter_dok_page,
+                     self._dienstliches_page,
                      self._aufgaben_tag_page, self._aufgaben_page,
                      self._dienstplan_page, self._uebergabe_page,
                      self._fahrzeuge_page, self._code19_page,
@@ -274,18 +279,20 @@ class MainWindow(QMainWindow):
         elif index == 1:
             self._mitarbeiter_dok_page.refresh()
         elif index == 2:
-            self._aufgaben_tag_page.refresh()
+            self._dienstliches_page.refresh()
         elif index == 3:
-            self._aufgaben_page.refresh()
+            self._aufgaben_tag_page.refresh()
         elif index == 4:
-            self._dienstplan_page.reload_tree()
+            self._aufgaben_page.refresh()
         elif index == 5:
-            self._uebergabe_page.refresh()
+            self._dienstplan_page.reload_tree()
         elif index == 6:
-            self._fahrzeuge_page.refresh()
+            self._uebergabe_page.refresh()
         elif index == 7:
-            self._code19_page.refresh()
+            self._fahrzeuge_page.refresh()
         elif index == 8:
-            self._ausdrucke_page.refresh()
+            self._code19_page.refresh()
         elif index == 9:
+            self._ausdrucke_page.refresh()
+        elif index == 10:
             self._krankmeldungen_page.refresh()

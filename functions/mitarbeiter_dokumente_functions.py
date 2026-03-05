@@ -31,7 +31,7 @@ KATEGORIEN = [
     "Bescheinigungen",
     "Dienstanweisungen",
     "Abmahnungen",
-    "Lob & Anerkennung",
+    "Verspätung",
     "Sonstiges",
 ]
 

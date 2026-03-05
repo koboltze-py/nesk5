@@ -38,6 +38,18 @@ from functions.stellungnahmen_db import (
     verfuegbare_jahre as db_jahre,
     get_eintrag as db_get_eintrag,
 )
+from functions.verspaetung_db import (
+    verspaetung_speichern,
+    verspaetung_aktualisieren,
+    verspaetung_loeschen as vdb_loeschen,
+    lade_verspaetungen,
+    verfuegbare_jahre as vdb_jahre,
+)
+from functions.verspaetung_functions import (
+    erstelle_verspaetungs_dokument,
+    oeffne_dokument as oeffne_versp_dokument,
+    berechne_verspaetung_min,
+)
 
 
 # ── Hilfsstile ────────────────────────────────────────────────────────────────
@@ -275,6 +287,13 @@ class _StellungnahmeDialog(QDialog):
         self._grp_beschwerde = QGroupBox("🗣️ Beschreibung der Beschwerde")
         self._grp_beschwerde.setStyleSheet(self._GROUP_STYLE)
         bw_layout = QVBoxLayout(self._grp_beschwerde)
+        bw_fl = QFormLayout()
+        bw_fl.setSpacing(8)
+        self._flugnummer_beschwerde = QLineEdit()
+        self._flugnummer_beschwerde.setPlaceholderText("z.B. LH1234 (optional)")
+        self._flugnummer_beschwerde.setStyleSheet(self._FIELD_STYLE)
+        bw_fl.addRow("Flugnummer (optional):", self._flugnummer_beschwerde)
+        bw_layout.addLayout(bw_fl)
         self._beschwerde_text = QTextEdit()
         self._beschwerde_text.setPlaceholderText("Inhalt der Beschwerde schildern ...")
         self._beschwerde_text.setMinimumHeight(100)
@@ -329,7 +348,7 @@ class _StellungnahmeDialog(QDialog):
         is_sonstiges = self._paxannahme_ort.currentText() == "Sonstiges"
 
         self._grp_flug.setVisible(is_flug)
-        self._grp_verspaetung.setVisible((is_flug and is_verspaetung) or is_beschwerde)
+        self._grp_verspaetung.setVisible(is_flug and is_verspaetung)
         self._grp_inbound.setVisible(is_flug and be_inbound)
         self._grp_outbound.setVisible(is_flug and be_outbound)
         self._grp_sachverhalt.setVisible(True)  # immer sichtbar
@@ -379,7 +398,9 @@ class _StellungnahmeDialog(QDialog):
             datum          = self._datum_vorfall.date().toString("dd.MM.yyyy"),
             verfasst_am    = self._datum_verfasst.date().toString("dd.MM.yyyy"),
             art            = art,
-            flugnummer     = self._flugnummer.text().strip() if art == "flug" else self._flugnummer_nm.text().strip(),
+            flugnummer     = (self._flugnummer.text().strip() if art == "flug"
+                             else self._flugnummer_beschwerde.text().strip() if art == "beschwerde"
+                             else self._flugnummer_nm.text().strip()),
             verspaetung    = self._verspaetung_cb.isChecked(),
             onblock        = self._onblock.time().toString("HH:mm"),
             offblock       = self._offblock.time().toString("HH:mm"),
@@ -566,6 +587,214 @@ class _DokumentBearbeitenDialog(QDialog):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Dialog: Verspätung erfassen
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _VerspaetungDialog(QDialog):
+    """Dialog zum Erfassen einer Meldung über unpünktlichen Dienstantritt."""
+
+    _DIENST_ITEMS = [
+        ("T – Tagdienst (06:00)",   "T",   "06:00"),
+        ("T10 – Tagdienst 10h",     "T10", "06:00"),
+        ("N – Nachtdienst (21:00)", "N",   "21:00"),
+        ("N10 – Nachtdienst 10h",   "N10", "21:00"),
+    ]
+
+    def __init__(self, daten: dict | None = None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("⏰ Verspätungsmeldung erfassen")
+        self.setMinimumWidth(520)
+        self.resize(560, 590)
+        self._vorlage_daten = daten or {}
+        self._build_ui()
+        if daten:
+            self._prefill(daten)
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 16)
+
+        title = QLabel("🕐 Meldung über unpünktlichen Dienstantritt")
+        title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
+        title.setStyleSheet(f"color:{FIORI_BLUE};")
+        layout.addWidget(title)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # Mitarbeiter
+        self._ma_combo = QComboBox()
+        self._ma_combo.setEditable(True)
+        self._ma_combo.setMinimumWidth(260)
+        self._ma_combo.lineEdit().setPlaceholderText("Name eingeben …")
+        try:
+            from functions.mitarbeiter_functions import lade_mitarbeiter_namen
+            for name in lade_mitarbeiter_namen():
+                self._ma_combo.addItem(name)
+        except Exception:
+            try:
+                from database.models import Mitarbeiter as _MA
+                from database.connection import get_session
+                with get_session() as s:
+                    mas = s.query(_MA).filter(_MA.status == "aktiv").order_by(_MA.nachname).all()
+                    for m in mas:
+                        self._ma_combo.addItem(f"{m.nachname}, {m.vorname}")
+            except Exception:
+                pass
+        form.addRow("Mitarbeiter *:", self._ma_combo)
+
+        # Datum
+        self._datum = QDateEdit(QDate.currentDate())
+        self._datum.setCalendarPopup(True)
+        self._datum.setDisplayFormat("dd.MM.yyyy")
+        form.addRow("Datum *:", self._datum)
+
+        # Dienstart
+        self._dienst_combo = QComboBox()
+        for label, code, _ in self._DIENST_ITEMS:
+            self._dienst_combo.addItem(label, code)
+        self._dienst_combo.currentIndexChanged.connect(self._on_dienst_changed)
+        form.addRow("Dienstart *:", self._dienst_combo)
+
+        # Dienstbeginn
+        self._beginn = QTimeEdit(QTime(6, 0))
+        self._beginn.setDisplayFormat("HH:mm")
+        self._beginn.timeChanged.connect(self._update_verspaetung)
+        form.addRow("Dienstbeginn:", self._beginn)
+
+        # Dienstantritt
+        self._antritt = QTimeEdit(QTime(6, 0))
+        self._antritt.setDisplayFormat("HH:mm")
+        self._antritt.timeChanged.connect(self._update_verspaetung)
+        form.addRow("Tatsächlicher Antritt *:", self._antritt)
+
+        # Verspätung (readonly)
+        self._versp_lbl = QLabel("0 Minuten")
+        self._versp_lbl.setStyleSheet(
+            "font-weight:bold; color:#c00; font-size:13px; padding:2px 0;"
+        )
+        form.addRow("Verspätung:", self._versp_lbl)
+
+        # Begründung
+        self._begruendung = QTextEdit()
+        self._begruendung.setPlaceholderText("Begründung des Mitarbeiters …")
+        self._begruendung.setMinimumHeight(80)
+        self._begruendung.setMaximumHeight(130)
+        form.addRow("Begründung:", self._begruendung)
+
+        # Aufgenommen von
+        self._aufgenommen_von = QLineEdit()
+        self._aufgenommen_von.setPlaceholderText("Name Schichtleiter/in")
+        form.addRow("Aufgenommen von:", self._aufgenommen_von)
+
+        layout.addLayout(form)
+
+        hint = QLabel(
+            "ℹ️  Das Dokument wird im Ordner <b>Daten/Spät/Protokoll/</b> gespeichert "
+            "und kann direkt geöffnet und gedruckt werden."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet(
+            "background:#fff8e1; color:#5a3e00; border-radius:4px;"
+            "padding:8px 12px; font-size:11px;"
+        )
+        layout.addWidget(hint)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_erstellen = _btn("📄  Dokument erstellen", FIORI_BLUE)
+        btn_erstellen.clicked.connect(self._on_accept)
+        btn_abbrechen = _btn_light("Abbrechen")
+        btn_abbrechen.clicked.connect(self.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_erstellen)
+        btn_row.addWidget(btn_abbrechen)
+        layout.addLayout(btn_row)
+
+        self._update_verspaetung()
+
+    def _on_dienst_changed(self, idx: int):
+        _, code, beginn = self._DIENST_ITEMS[idx]
+        h, m = map(int, beginn.split(":"))
+        self._beginn.setTime(QTime(h, m))
+
+    def _update_verspaetung(self):
+        b = self._beginn.time()
+        a = self._antritt.time()
+        diff = (a.hour() * 60 + a.minute()) - (b.hour() * 60 + b.minute())
+        if diff > 0:
+            self._versp_lbl.setText(f"⚠ {diff} Minuten zu spät")
+            self._versp_lbl.setStyleSheet(
+                "font-weight:bold; color:#c00; font-size:13px; padding:2px 0;"
+            )
+        elif diff < 0:
+            self._versp_lbl.setText(f"✅ {abs(diff)} Minuten zu früh")
+            self._versp_lbl.setStyleSheet(
+                "font-weight:bold; color:#2d6a2d; font-size:13px; padding:2px 0;"
+            )
+        else:
+            self._versp_lbl.setText("✅ Pünktlich (0 Minuten)")
+            self._versp_lbl.setStyleSheet(
+                "font-weight:bold; color:#2d6a2d; font-size:13px; padding:2px 0;"
+            )
+
+    def _on_accept(self):
+        ma = self._ma_combo.currentText().strip()
+        if not ma:
+            QMessageBox.warning(self, "Pflichtfeld", "Bitte Mitarbeiter angeben.")
+            return
+        self.accept()
+
+    def _prefill(self, daten: dict):
+        if daten.get("mitarbeiter"):
+            idx = self._ma_combo.findText(daten["mitarbeiter"])
+            if idx >= 0:
+                self._ma_combo.setCurrentIndex(idx)
+            else:
+                self._ma_combo.setCurrentText(daten["mitarbeiter"])
+        if daten.get("datum"):
+            parts = daten["datum"].split(".")
+            if len(parts) == 3:
+                self._datum.setDate(QDate(int(parts[2]), int(parts[1]), int(parts[0])))
+        if daten.get("dienst"):
+            for i, (_, code, _) in enumerate(self._DIENST_ITEMS):
+                if code == daten["dienst"]:
+                    self._dienst_combo.setCurrentIndex(i)
+                    break
+        if daten.get("dienstbeginn"):
+            h, m = map(int, daten["dienstbeginn"].split(":"))
+            self._beginn.setTime(QTime(h, m))
+        if daten.get("dienstantritt"):
+            h, m = map(int, daten["dienstantritt"].split(":"))
+            self._antritt.setTime(QTime(h, m))
+        if daten.get("begruendung"):
+            self._begruendung.setPlainText(daten["begruendung"])
+        if daten.get("aufgenommen_von"):
+            self._aufgenommen_von.setText(daten["aufgenommen_von"])
+
+    def get_daten(self) -> dict:
+        b = self._beginn.time()
+        a = self._antritt.time()
+        beginn_str  = f"{b.hour():02d}:{b.minute():02d}"
+        antritt_str = f"{a.hour():02d}:{a.minute():02d}"
+        diff = (a.hour() * 60 + a.minute()) - (b.hour() * 60 + b.minute())
+        idx = self._dienst_combo.currentIndex()
+        dienst_code = self._dienst_combo.itemData(idx) or "T"
+        return {
+            "mitarbeiter":     self._ma_combo.currentText().strip(),
+            "datum":           self._datum.date().toString("dd.MM.yyyy"),
+            "dienst":          dienst_code,
+            "dienstbeginn":    beginn_str,
+            "dienstantritt":   antritt_str,
+            "verspaetung_min": diff,
+            "begruendung":     self._begruendung.toPlainText().strip(),
+            "aufgenommen_von": self._aufgenommen_von.text().strip(),
+        }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Haupt-Widget
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -726,6 +955,12 @@ class MitarbeiterDokumenteWidget(QWidget):
         self._btn_web.clicked.connect(self._web_ansicht_oeffnen)
         btn_row.addWidget(self._btn_web)
 
+        self._btn_verspaetung = _btn("⏰  Verspätung erfassen", "#b05a00", "#7a3d00")
+        self._btn_verspaetung.setToolTip("Neue Meldung über unpünktlichen Dienstantritt erstellen")
+        self._btn_verspaetung.setVisible(False)
+        self._btn_verspaetung.clicked.connect(self._verspaetung_erfassen)
+        btn_row.addWidget(self._btn_verspaetung)
+
         self._btn_oeffnen = _btn_light("📂  Öffnen")
         self._btn_oeffnen.setToolTip("Ausgewähltes Dokument mit Word / Standard-App öffnen")
         self._btn_oeffnen.setEnabled(False)
@@ -847,6 +1082,11 @@ class MitarbeiterDokumenteWidget(QWidget):
         # ── TAB 1: Datenbank-Suche ────────────────────────────────────────────
         self._tabs.addTab(self._build_db_browser(), "🔍  Datenbank-Suche")
         self._tabs.setTabVisible(1, False)  # nur bei Stellungnahmen sichtbar
+
+        # ── TAB 2: Verspätungs-Protokoll ──────────────────────────────────────
+        self._tabs.addTab(self._build_verspaetungen_tab(), "⏰  Verspätungs-Protokoll")
+        self._tabs.setTabVisible(2, False)  # nur bei Verspätung sichtbar
+
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
         return w
@@ -913,9 +1153,9 @@ class MitarbeiterDokumenteWidget(QWidget):
 
         # ── Ergebnis-Tabelle ──────────────────────────────────────────────────
         self._db_table = QTableWidget()
-        self._db_table.setColumnCount(6)
+        self._db_table.setColumnCount(7)
         self._db_table.setHorizontalHeaderLabels(
-            ["Datum Vorfall", "Mitarbeiter", "Art", "Flugnummer", "Verfasst am", "ID"]
+            ["Datum Vorfall", "Mitarbeiter", "Art", "Flugnummer", "Verfasst am", "Erstellt am", "ID"]
         )
         hh = self._db_table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -924,6 +1164,7 @@ class MitarbeiterDokumenteWidget(QWidget):
         hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
         self._db_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._db_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._db_table.setAlternatingRowColors(True)
@@ -971,6 +1212,389 @@ class MitarbeiterDokumenteWidget(QWidget):
         layout.addLayout(db_btn_row)
         return w
 
+    def _build_verspaetungen_tab(self) -> QWidget:
+        """TAB 2: Verspätungs-Protokoll – Filterzeile, Tabelle, Aktionen."""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(8)
+
+        # ── Filter-Zeile ──────────────────────────────────────────────────────
+        filter_frame = QFrame()
+        filter_frame.setStyleSheet(
+            "QFrame{background:#fff8e1;border:1px solid #ffe082;"
+            "border-radius:4px;padding:4px;}"
+        )
+        fl = QHBoxLayout(filter_frame)
+        fl.setContentsMargins(8, 6, 8, 6)
+        fl.setSpacing(10)
+
+        fl.addWidget(QLabel("Jahr:"))
+        self._versp_combo_jahr = QComboBox()
+        self._versp_combo_jahr.setFixedWidth(80)
+        self._versp_combo_jahr.addItem("Alle", None)
+        self._versp_combo_jahr.currentIndexChanged.connect(self._versp_filter_changed)
+        fl.addWidget(self._versp_combo_jahr)
+
+        fl.addWidget(QLabel("Monat:"))
+        self._versp_combo_monat = QComboBox()
+        self._versp_combo_monat.setFixedWidth(110)
+        _MONATE = [
+            "Alle", "Januar", "Februar", "März", "April", "Mai", "Juni",
+            "Juli", "August", "September", "Oktober", "November", "Dezember",
+        ]
+        for i, m in enumerate(_MONATE):
+            self._versp_combo_monat.addItem(m, None if i == 0 else i)
+        self._versp_combo_monat.currentIndexChanged.connect(self._versp_filter_changed)
+        fl.addWidget(self._versp_combo_monat)
+
+        fl.addWidget(QLabel("Suche:"))
+        self._versp_suche = QLineEdit()
+        self._versp_suche.setPlaceholderText("Name, Begründung, Aufgenommen von …")
+        self._versp_suche.setMinimumWidth(200)
+        self._versp_suche.textChanged.connect(self._versp_filter_changed)
+        fl.addWidget(self._versp_suche, 1)
+
+        btn_reset = _btn_light("✖ Zurücksetzen")
+        btn_reset.setFixedHeight(28)
+        btn_reset.clicked.connect(self._versp_filter_reset)
+        fl.addWidget(btn_reset)
+
+        layout.addWidget(filter_frame)
+
+        # ── Ergebnis-Tabelle ──────────────────────────────────────────────────
+        self._versp_table = QTableWidget()
+        self._versp_table.setColumnCount(8)
+        self._versp_table.setHorizontalHeaderLabels([
+            "Datum", "Mitarbeiter", "Dienst",
+            "Dienstbeginn", "Dienstantritt", "Verspätung",
+            "Aufgenommen von", "ID",
+        ])
+        hh = self._versp_table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+        self._versp_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._versp_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._versp_table.setAlternatingRowColors(True)
+        self._versp_table.setStyleSheet("QTableWidget{border:1px solid #ddd;font-size:12px;}")
+        self._versp_table.verticalHeader().setVisible(False)
+        self._versp_table.itemSelectionChanged.connect(self._versp_auswahl_geaendert)
+        self._versp_table.itemDoubleClicked.connect(lambda _: self._verspaetung_oeffnen())
+        layout.addWidget(self._versp_table, 1)
+
+        # ── Aktions-Buttons ───────────────────────────────────────────────────
+        vbtn_row = QHBoxLayout()
+        vbtn_row.setSpacing(8)
+
+        self._versp_btn_oeffnen = _btn("📂  Dokument öffnen", FIORI_BLUE)
+        self._versp_btn_oeffnen.setEnabled(False)
+        self._versp_btn_oeffnen.setToolTip("Gespeichertes Word-Dokument öffnen / drucken")
+        self._versp_btn_oeffnen.clicked.connect(self._verspaetung_oeffnen)
+        vbtn_row.addWidget(self._versp_btn_oeffnen)
+
+        self._versp_btn_bearbeiten = _btn_light("✏  Bearbeiten")
+        self._versp_btn_bearbeiten.setEnabled(False)
+        self._versp_btn_bearbeiten.setToolTip("Eintrag bearbeiten und Dokument neu erstellen")
+        self._versp_btn_bearbeiten.clicked.connect(self._verspaetung_bearbeiten)
+        vbtn_row.addWidget(self._versp_btn_bearbeiten)
+
+        self._versp_btn_mail = _btn("📧  Per E-Mail senden", "#5c35cc", "#4a2aa0")
+        self._versp_btn_mail.setEnabled(False)
+        self._versp_btn_mail.setToolTip("Outlook-Entwurf mit dem Dokument als Anhang erstellen")
+        self._versp_btn_mail.clicked.connect(self._verspaetung_mail_senden)
+        vbtn_row.addWidget(self._versp_btn_mail)
+
+        self._versp_btn_loeschen = _btn_light("🗑  Löschen")
+        self._versp_btn_loeschen.setEnabled(False)
+        self._versp_btn_loeschen.setToolTip("Eintrag aus Protokoll löschen (Dokument bleibt erhalten)")
+        self._versp_btn_loeschen.setStyleSheet(
+            "QPushButton{background:#eee;color:#333;border:none;"
+            "border-radius:4px;padding:4px 14px;font-size:12px;}"
+            "QPushButton:hover{background:#ffcccc;color:#a00;}"
+            "QPushButton:disabled{background:#f5f5f5;color:#bbb;}"
+        )
+        self._versp_btn_loeschen.clicked.connect(self._verspaetung_loeschen)
+        vbtn_row.addWidget(self._versp_btn_loeschen)
+
+        vbtn_row.addStretch()
+        self._versp_treffer_lbl = QLabel()
+        self._versp_treffer_lbl.setStyleSheet("color:#666; font-size:11px;")
+        vbtn_row.addWidget(self._versp_treffer_lbl)
+
+        layout.addLayout(vbtn_row)
+        return w
+
+    # ── Verspätungen: Filter / Laden ──────────────────────────────────────────
+
+    def _versp_jahre_aktualisieren(self):
+        current = self._versp_combo_jahr.currentData()
+        self._versp_combo_jahr.blockSignals(True)
+        self._versp_combo_jahr.clear()
+        self._versp_combo_jahr.addItem("Alle", None)
+        for j in vdb_jahre():
+            self._versp_combo_jahr.addItem(str(j), j)
+        for i in range(self._versp_combo_jahr.count()):
+            if self._versp_combo_jahr.itemData(i) == current:
+                self._versp_combo_jahr.setCurrentIndex(i)
+                break
+        self._versp_combo_jahr.blockSignals(False)
+
+    def _versp_filter_reset(self):
+        for w in (self._versp_combo_jahr, self._versp_combo_monat):
+            w.blockSignals(True)
+            w.setCurrentIndex(0)
+            w.blockSignals(False)
+        self._versp_suche.blockSignals(True)
+        self._versp_suche.clear()
+        self._versp_suche.blockSignals(False)
+        self._versp_lade()
+
+    def _versp_filter_changed(self):
+        self._versp_lade()
+
+    def _versp_lade(self):
+        """Verspätungs-DB abfragen und Tabelle befüllen."""
+        jahr   = self._versp_combo_jahr.currentData()
+        monat  = self._versp_combo_monat.currentData()
+        suche  = self._versp_suche.text().strip() or None
+        try:
+            eintraege = lade_verspaetungen(monat=monat, jahr=jahr, suchtext=suche)
+        except Exception as exc:
+            QMessageBox.critical(self, "Datenbankfehler", str(exc))
+            return
+        self._versp_eintraege = eintraege
+        self._versp_table.setRowCount(len(eintraege))
+        for row, e in enumerate(eintraege):
+            vmin = e.get("verspaetung_min") or 0
+            if vmin > 0:
+                versp_text = f"⚠ {vmin} Min."
+                color = QColor("#fff3cd")
+            elif vmin < 0:
+                versp_text = f"✅ {abs(vmin)} Min. früh"
+                color = QColor("#d4edda")
+            else:
+                versp_text = "✅ Pünktlich"
+                color = QColor("#d4edda")
+            row_data = [
+                e.get("datum", ""),
+                e.get("mitarbeiter", ""),
+                e.get("dienst", ""),
+                e.get("dienstbeginn", ""),
+                e.get("dienstantritt", ""),
+                versp_text,
+                e.get("aufgenommen_von", "") or "—",
+                str(e.get("id", "")),
+            ]
+            for col, text in enumerate(row_data):
+                item = QTableWidgetItem(text)
+                if col == 5:
+                    item.setBackground(color)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter if col in (2, 3, 4, 5, 7) else Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+                self._versp_table.setItem(row, col, item)
+        n = len(eintraege)
+        self._versp_treffer_lbl.setText(f"{n} Eintrag{'e' if n != 1 else ''}")
+        self._versp_auswahl_geaendert()
+
+    def _versp_auswahl_geaendert(self):
+        hat = bool(self._versp_aktuell_eintrag())
+        for btn in (self._versp_btn_oeffnen, self._versp_btn_bearbeiten,
+                    self._versp_btn_loeschen, self._versp_btn_mail):
+            btn.setEnabled(hat)
+
+    def _versp_aktuell_eintrag(self) -> dict | None:
+        row = self._versp_table.currentRow()
+        try:
+            return self._versp_eintraege[row]
+        except (AttributeError, IndexError):
+            return None
+
+    # ── Verspätungen: Aktionen ────────────────────────────────────────────────
+
+    def _verspaetung_erfassen(self):
+        """Neuen Verspätungseintrag erfassen und Dokument erstellen."""
+        dlg = _VerspaetungDialog(parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        daten = dlg.get_daten()
+        if not daten.get("mitarbeiter"):
+            return
+        try:
+            dokument_pfad = erstelle_verspaetungs_dokument(daten)
+            daten["dokument_pfad"] = dokument_pfad
+            verspaetung_speichern(daten)
+            self._versp_lade()
+            antwort = QMessageBox.question(
+                self,
+                "Verspätungsmeldung erstellt",
+                f"Das Dokument wurde erstellt und gespeichert:\n\n📄 {dokument_pfad}\n\n"
+                "Dokument jetzt öffnen (drucken)?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if antwort == QMessageBox.StandardButton.Yes:
+                try:
+                    oeffne_versp_dokument(dokument_pfad)
+                except Exception as exc:
+                    QMessageBox.warning(self, "Öffnen fehlgeschlagen", str(exc))
+        except Exception as exc:
+            QMessageBox.critical(self, "Fehler beim Erstellen", str(exc))
+
+    def _verspaetung_bearbeiten(self):
+        """Bestehenden Eintrag bearbeiten und Dokument neu erstellen."""
+        e = self._versp_aktuell_eintrag()
+        if not e:
+            return
+        dlg = _VerspaetungDialog(daten=dict(e), parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        daten = dlg.get_daten()
+        try:
+            dokument_pfad = erstelle_verspaetungs_dokument(daten)
+            daten["dokument_pfad"] = dokument_pfad
+            verspaetung_aktualisieren(e["id"], daten)
+            self._versp_lade()
+            antwort = QMessageBox.question(
+                self,
+                "Eintrag aktualisiert",
+                f"Dokument wurde neu erstellt:\n\n📄 {dokument_pfad}\n\nJetzt öffnen?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if antwort == QMessageBox.StandardButton.Yes:
+                try:
+                    oeffne_versp_dokument(dokument_pfad)
+                except Exception as exc:
+                    QMessageBox.warning(self, "Öffnen fehlgeschlagen", str(exc))
+        except Exception as exc:
+            QMessageBox.critical(self, "Fehler beim Bearbeiten", str(exc))
+
+    def _verspaetung_loeschen(self):
+        e = self._versp_aktuell_eintrag()
+        if not e:
+            return
+        antwort = QMessageBox.question(
+            self, "Eintrag löschen",
+            f"Protokoll-Eintrag wirklich löschen?\n\n"
+            f"Mitarbeiter:  {e.get('mitarbeiter', '')}\n"
+            f"Datum:         {e.get('datum', '')}\n\n"
+            "⚠ Das Word-Dokument wird NICHT gelöscht.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if antwort == QMessageBox.StandardButton.Yes:
+            try:
+                vdb_loeschen(e["id"])
+                self._versp_lade()
+            except Exception as exc:
+                QMessageBox.critical(self, "Fehler", str(exc))
+
+    def _verspaetung_oeffnen(self):
+        e = self._versp_aktuell_eintrag()
+        if not e:
+            return
+        pfad = e.get("dokument_pfad", "")
+        if pfad and os.path.isfile(pfad):
+            try:
+                oeffne_versp_dokument(pfad)
+            except Exception as exc:
+                QMessageBox.warning(self, "Fehler", str(exc))
+        else:
+            QMessageBox.warning(
+                self, "Datei nicht gefunden",
+                f"Das Dokument wurde nicht gefunden:\n{pfad}\n\n"
+                "Es wurde möglicherweise verschoben oder gelöscht."
+            )
+
+    def _verspaetung_mail_senden(self):
+        """Outlook-Entwurf mit dem Verspätungsdokument als Anhang erstellen."""
+        e = self._versp_aktuell_eintrag()
+        if not e:
+            return
+        pfad = e.get("dokument_pfad", "")
+        if not pfad or not os.path.isfile(pfad):
+            QMessageBox.warning(
+                self, "Kein Dokument",
+                "Es ist kein Dokument für diesen Eintrag vorhanden.\n"
+                "Bitte zuerst bearbeiten, um ein neues Dokument zu erstellen."
+            )
+            return
+        # Mail-Dialog
+        dlg = QDialog(self)
+        dlg.setWindowTitle("📧 Verspätungsmeldung per E-Mail senden")
+        dlg.setMinimumWidth(520)
+        vl = QVBoxLayout(dlg)
+        vl.setSpacing(10)
+        vl.setContentsMargins(20, 20, 20, 16)
+
+        form = QFormLayout()
+        form.setSpacing(8)
+
+        emp_edit = QLineEdit()
+        emp_edit.setPlaceholderText("z.B. bereichsleitung@drk-koeln.de")
+        form.addRow("Empfänger:", emp_edit)
+
+        betr_edit = QLineEdit()
+        betr_edit.setText(
+            f"Verspätungsmeldung – {e.get('mitarbeiter', '')} – {e.get('datum', '')}"
+        )
+        form.addRow("Betreff:", betr_edit)
+
+        body_edit = QTextEdit()
+        vmin = e.get("verspaetung_min") or 0
+        body_edit.setPlainText(
+            f"Guten Tag,\n\n"
+            f"anbei die Meldung über unpünktlichen Dienstantritt:\n\n"
+            f"  Mitarbeiter:    {e.get('mitarbeiter', '')}\n"
+            f"  Datum:          {e.get('datum', '')}\n"
+            f"  Dienst:         {e.get('dienst', '')}\n"
+            f"  Dienstbeginn:   {e.get('dienstbeginn', '')}\n"
+            f"  Dienstantritt:  {e.get('dienstantritt', '')}\n"
+            f"  Verspätung:     {vmin} Minuten\n\n"
+            f"Mit freundlichen Grüßen\n"
+            f"Erste-Hilfe-Station CGN"
+        )
+        body_edit.setMinimumHeight(180)
+        form.addRow("Text:", body_edit)
+
+        anhang_lbl = QLabel(f"📎 {os.path.basename(pfad)}")
+        anhang_lbl.setStyleSheet("color:#555; font-size:11px;")
+        form.addRow("Anhang:", anhang_lbl)
+
+        vl.addLayout(form)
+
+        btns_row = QHBoxLayout()
+        btns_row.setSpacing(8)
+        send_btn = _btn("📧  Outlook-Entwurf erstellen", "#5c35cc", "#4a2aa0")
+        send_btn.clicked.connect(dlg.accept)
+        close_btn = _btn_light("Abbrechen")
+        close_btn.clicked.connect(dlg.reject)
+        btns_row.addStretch()
+        btns_row.addWidget(send_btn)
+        btns_row.addWidget(close_btn)
+        vl.addLayout(btns_row)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        try:
+            from functions.mail_functions import create_outlook_draft
+            create_outlook_draft(
+                to=emp_edit.text().strip(),
+                subject=betr_edit.text().strip(),
+                body=body_edit.toPlainText(),
+                attachments=[pfad],
+            )
+            QMessageBox.information(
+                self, "Entwurf erstellt",
+                "Der Outlook-Entwurf wurde erfolgreich erstellt.\n"
+                "Bitte öffne Outlook und prüfe den Entwurfsordner."
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Fehler beim E-Mail-Erstellen", str(exc))
+
     # ── Refresh / Laden ───────────────────────────────────────────────────────
 
     def refresh(self):
@@ -993,9 +1617,15 @@ class MitarbeiterDokumenteWidget(QWidget):
         self._akt_kategorie = kategorie
         self._kat_label.setText(f"📁  {kategorie}")
         is_stell = (kategorie == "Stellungnahmen")
+        is_versp = (kategorie == "Verspätung")
         self._btn_stellungnahme.setVisible(is_stell)
         self._btn_web.setVisible(is_stell)
         self._tabs.setTabVisible(1, is_stell)
+        self._btn_verspaetung.setVisible(is_versp)
+        self._tabs.setTabVisible(2, is_versp)
+        if is_versp:
+            self._versp_jahre_aktualisieren()
+            self._versp_lade()
 
         # Filter-Bar für Dateien-Tab bei Stellungnahmen
         self._datei_filter_frame.setVisible(is_stell)
@@ -1212,13 +1842,15 @@ class MitarbeiterDokumenteWidget(QWidget):
 
         is_stell = (kategorie == "Stellungnahmen")
         if is_stell:
-            self._table.setColumnCount(5)
-            self._table.setHorizontalHeaderLabels(["Dateiname", "Art", "Mitarbeiter", "Zuletzt geändert", "Typ"])
+            self._table.setColumnCount(7)
+            self._table.setHorizontalHeaderLabels(["Dateiname", "Art", "Mitarbeiter", "Flugnummer", "Erstellt am", "Zuletzt geändert", "Typ"])
             self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
             self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
             self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
             self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
             self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+            self._table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+            self._table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
             try:
                 alle_db = db_lade_alle()
                 db_lookup = {os.path.basename(e.get("pfad_intern", "")): e for e in alle_db}
@@ -1243,8 +1875,13 @@ class MitarbeiterDokumenteWidget(QWidget):
                 db_e = db_lookup.get(d["name"], {})
                 self._table.setItem(row, 1, QTableWidgetItem(db_e.get("art_label", "—")))
                 self._table.setItem(row, 2, QTableWidgetItem(db_e.get("mitarbeiter", "—")))
-                self._table.setItem(row, 3, QTableWidgetItem(d["geaendert"]))
-                self._table.setItem(row, 4, QTableWidgetItem(ext.upper().lstrip(".")))
+                fn = db_e.get("flugnummer", "") or "—"
+                self._table.setItem(row, 3, QTableWidgetItem(fn))
+                erstellt = db_e.get("erstellt_am", "") or "—"
+                # Nur das Datum anzeigen (ohne Uhrzeit)
+                self._table.setItem(row, 4, QTableWidgetItem(erstellt[:10] if erstellt != "—" else "—"))
+                self._table.setItem(row, 5, QTableWidgetItem(d["geaendert"]))
+                self._table.setItem(row, 6, QTableWidgetItem(ext.upper().lstrip(".")))
             else:
                 self._table.setItem(row, 1, QTableWidgetItem(d["geaendert"]))
                 self._table.setItem(row, 2, QTableWidgetItem(ext.upper().lstrip(".")))
@@ -1267,6 +1904,9 @@ class MitarbeiterDokumenteWidget(QWidget):
         if idx == 1:
             self._db_jahre_aktualisieren()
             self._db_lade()
+        elif idx == 2:
+            self._versp_jahre_aktualisieren()
+            self._versp_lade()
 
     def _db_jahre_aktualisieren(self):
         """Jahr-Combobox mit vorhandenen Werten aus der DB befüllen."""
@@ -1322,9 +1962,11 @@ class MitarbeiterDokumenteWidget(QWidget):
             fn = e.get("flugnummer", "")
             self._db_table.setItem(row, 3, QTableWidgetItem(fn if fn else "\u2014"))
             self._db_table.setItem(row, 4, QTableWidgetItem(e.get("verfasst_am", "")))
+            erstellt = e.get("erstellt_am", "") or ""
+            self._db_table.setItem(row, 5, QTableWidgetItem(erstellt[:10] if erstellt else "\u2014"))
             id_item = QTableWidgetItem(str(e.get("id", "")))
             id_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._db_table.setItem(row, 5, id_item)
+            self._db_table.setItem(row, 6, id_item)
 
         n = len(eintraege)
         self._db_treffer_lbl.setText(f"{n} Eintrag{'e' if n != 1 else ''} gefunden")

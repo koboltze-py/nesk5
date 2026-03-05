@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dienstplan 02.03.2026 – DRK Köln e.V.</title>
+<style>
+:root {
+  --bg:         #f4f6f9;
+  --card:       #ffffff;
+  --border:     #dce8f5;
+  --drk-red:    #e30613;
+  --drk-dark:   #7a0008;
+  --dispo-col:  #0a5ba4;
+  --betr-col:   #107e3e;
+  --krank-col:  #c0392b;
+  --night-col:  #6c3483;
+  --text:       #1a1a2a;
+  --muted:      #888;
+  --header-bg:  #1a1a2e;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+header {
+  background: var(--header-bg);
+  color: white;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 3px solid var(--drk-red);
+}
+.logo { font-size: 2rem; font-weight: 900; color: var(--drk-red); letter-spacing: -1px; }
+.header-title { font-size: 1.2rem; font-weight: 700; }
+.header-sub   { font-size: 0.8rem; color: #aaa; margin-top: 2px; }
+.header-right { margin-left: auto; text-align: right; font-size: 0.8rem; color: #ccc; }
+.stand { font-size: 0.7rem; color: #aaa; }
+
+.top-bar {
+  background: white;
+  border-bottom: 1px solid var(--border);
+  padding: 8px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.top-bar button {
+  background: var(--dispo-col);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 18px;
+  font-size: 0.88rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+.top-bar button:hover { opacity: 0.85; }
+.refresh-hint { font-size: 0.77rem; color: var(--muted); }
+
+main { padding: 20px 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.card.full-width { grid-column: 1 / -1; }
+.card-header {
+  padding: 10px 16px;
+  font-weight: 700;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: white;
+}
+.card-header.tag    { background: var(--dispo-col); }
+.card-header.nacht  { background: var(--night-col); }
+.card-header.krank  { background: var(--krank-col); }
+.sub-header {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 6px 16px 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border);
+  background: #fafbfd;
+}
+table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+thead tr { background: #f0f4f8; }
+th { padding: 6px 10px; font-size: 0.78rem; font-weight: 700; text-align: left; color: var(--muted); border-bottom: 1px solid var(--border); }
+td { padding: 5px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: #f8fbff; }
+.name  { font-weight: 600; }
+.zeit  { color: #555; font-size: 0.82rem; }
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: white;
+  white-space: nowrap;
+}
+.badge-krank { background: var(--krank-col); }
+.krank-row td { opacity: 0.9; }
+.krank-name { text-decoration: line-through; color: var(--krank-col); }
+.krank-dienst { color: var(--muted); font-size: 0.8rem; }
+.empty { color: var(--muted); font-size: 0.85rem; padding: 12px 16px; font-style: italic; }
+.count-badge {
+  margin-left: auto;
+  background: rgba(255,255,255,0.25);
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">DRK</div>
+  <div>
+    <div class="header-title">Dienstplan – EHS Flughafen Köln/Bonn</div>
+    <div class="header-sub">DRK Kreisverband Köln e.V.</div>
+  </div>
+  <div class="header-right">
+    <div style="font-size:1.1rem;font-weight:700;">02.03.2026</div>
+    <div class="stand">
+      Stand: 02.03.2026 18:13
+      &nbsp;·&nbsp;
+      <span id="stand-relative" style="color:#e8a0a0;"></span>
+    </div>
+    <div class="stand" style="margin-top:3px;color:#777;">02.03.2026.xlsx</div>
+    <span id="gen-ts" data-ts="1772471630" style="display:none;"></span>
+  </div>
+</header>
+
+<div class="top-bar">
+  <button onclick="reloadPage()">🔄&nbsp; Seite neu laden</button>
+  <span class="refresh-hint">
+    Diese Seite zeigt den Stand vom letzten Klick auf „Als Webseite anzeigen" in Nesk3.
+    Klicke in Nesk3 erneut auf den Button, um die Seite zu aktualisieren.
+  </span>
+</div>
+
+<main>
+  <div class="card">
+  <div class="card-header tag">☀️ Tagdienst <span class="count-badge">18</span></div>
+<div class="sub-header">Dispo</div><table>
+<thead><tr><th>Kürzel</th><th>Name</th><th>Von</th><th>Bis</th></tr></thead>
+<tbody>
+<tr><td><span class="badge" style="background:#0a5ba4">DT</span></td><td class="name">Kieckhöfel Pa</td><td class="zeit">07:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#0a5ba4">DT</span></td><td class="name">Kieckhöfel Me</td><td class="zeit">07:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#0a5ba4">DT3</span></td><td class="name">Groß</td><td class="zeit">07:00</td><td class="zeit">19:00</td></tr>
+</tbody></table>
+<div class="sub-header">Betreuer</div><table>
+<thead><tr><th>Kürzel</th><th>Name</th><th>Von</th><th>Bis</th></tr></thead>
+<tbody>
+<tr><td><span class="badge" style="background:#107e3e">T</span></td><td class="name">Parso</td><td class="zeit">06:00</td><td class="zeit">18:00</td></tr>
+<tr><td><span class="badge" style="background:#107e3e">T</span></td><td class="name">Idic Er</td><td class="zeit">06:00</td><td class="zeit">18:00</td></tr>
+<tr><td><span class="badge" style="background:#107e3e">T</span></td><td class="name">Badrieh</td><td class="zeit">06:00</td><td class="zeit">18:00</td></tr>
+<tr><td><span class="badge" style="background:#107e3e">T</span></td><td class="name">Touahni</td><td class="zeit">06:00</td><td class="zeit">18:00</td></tr>
+<tr><td><span class="badge" style="background:#107e3e">T</span></td><td class="name">Nazari</td><td class="zeit">06:00</td><td class="zeit">18:00</td></tr>
+<tr><td><span class="badge" style="background:#107e3e">T</span></td><td class="name">Baluch</td><td class="zeit">06:15</td><td class="zeit">18:00</td></tr>
+<tr><td><span class="badge" style="background:#107e3e">T</span></td><td class="name">Kalbfleisch</td><td class="zeit">06:00</td><td class="zeit">18:00</td></tr>
+<tr><td><span class="badge" style="background:#107e3e">T</span></td><td class="name">Singh</td><td class="zeit">09:50</td><td class="zeit">18:00</td></tr>
+<tr><td><span class="badge" style="background:#107e3e">T</span></td><td class="name">Mechqi</td><td class="zeit">06:00</td><td class="zeit">18:00</td></tr>
+<tr><td><span class="badge" style="background:#107e3e">T10</span></td><td class="name">Knoche</td><td class="zeit">08:45</td><td class="zeit">18:45</td></tr>
+<tr><td><span class="badge" style="background:#107e3e">T10</span></td><td class="name">Tamer</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#107e3e">T10</span></td><td class="name">Adrovic</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#107e3e">T10</span></td><td class="name">Becher</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#107e3e">T10</span></td><td class="name">Hassainia</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#107e3e">T10</span></td><td class="name">El Mojahid</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+</tbody></table>
+<div class="sub-header">Sonstiges</div><table>
+<thead><tr><th>Kürzel</th><th>Name</th><th>Von</th><th>Bis</th></tr></thead>
+<tbody>
+<tr><td><span class="badge" style="background:#888">RS</span></td><td class="name">Yavgaan</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#888">RS</span></td><td class="name">Kamencic</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#888">RS</span></td><td class="name">Kilic</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#888">RS</span></td><td class="name">Ekinci</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#888">RS</span></td><td class="name">Rasch</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#888">RS</span></td><td class="name">Bauschke</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#888">RS</span></td><td class="name">Kleeberg</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#888">RS</span></td><td class="name">Niedermüller</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#888">RS</span></td><td class="name">Bakkal</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#888">RS</span></td><td class="name">Rentschke</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#888">RS</span></td><td class="name">Hein</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#888">RS</span></td><td class="name">Tafuna</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#888">RS</span></td><td class="name">Joisten</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#888">RS</span></td><td class="name">Blaeser</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+<tr><td><span class="badge" style="background:#888">RS</span></td><td class="name">Pieper</td><td class="zeit">09:00</td><td class="zeit">19:00</td></tr>
+</tbody></table>
+</div>
+
+  <div class="card">
+  <div class="card-header nacht">🌙 Nachtdienst <span class="count-badge">16</span></div>
+<div class="sub-header">Dispo</div><table>
+<thead><tr><th>Kürzel</th><th>Name</th><th>Von</th><th>Bis</th></tr></thead>
+<tbody>
+<tr><td><span class="badge" style="background:#6c3483">DN</span></td><td class="name">Dyckx</td><td class="zeit">19:00</td><td class="zeit">07:00</td></tr>
+<tr><td><span class="badge" style="background:#6c3483">DN</span></td><td class="name">Idic Se</td><td class="zeit">19:00</td><td class="zeit">07:00</td></tr>
+<tr><td><span class="badge" style="background:#6c3483">DN</span></td><td class="name">Blei Si</td><td class="zeit">19:00</td><td class="zeit">07:00</td></tr>
+</tbody></table>
+<div class="sub-header">Betreuer</div><table>
+<thead><tr><th>Kürzel</th><th>Name</th><th>Von</th><th>Bis</th></tr></thead>
+<tbody>
+<tr><td><span class="badge" style="background:#6c3483">N</span></td><td class="name">El Karfouh</td><td class="zeit">18:00</td><td class="zeit">06:00</td></tr>
+<tr><td><span class="badge" style="background:#6c3483">N</span></td><td class="name">Etz</td><td class="zeit">18:00</td><td class="zeit">06:00</td></tr>
+<tr><td><span class="badge" style="background:#6c3483">N</span></td><td class="name">Oh</td><td class="zeit">18:00</td><td class="zeit">06:00</td></tr>
+<tr><td><span class="badge" style="background:#6c3483">N</span></td><td class="name">Demirbag</td><td class="zeit">18:00</td><td class="zeit">06:00</td></tr>
+<tr><td><span class="badge" style="background:#6c3483">N</span></td><td class="name">Mantzas</td><td class="zeit">18:00</td><td class="zeit">06:00</td></tr>
+<tr><td><span class="badge" style="background:#6c3483">N</span></td><td class="name">Hasan</td><td class="zeit">18:00</td><td class="zeit">06:00</td></tr>
+<tr><td><span class="badge" style="background:#6c3483">N</span></td><td class="name">Delgado</td><td class="zeit">18:00</td><td class="zeit">06:00</td></tr>
+<tr><td><span class="badge" style="background:#6c3483">N</span></td><td class="name">Maatoug</td><td class="zeit">18:00</td><td class="zeit">06:00</td></tr>
+<tr><td><span class="badge" style="background:#6c3483">N</span></td><td class="name">Bouladhane</td><td class="zeit">18:00</td><td class="zeit">06:00</td></tr>
+<tr><td><span class="badge" style="background:#6c3483">N</span></td><td class="name">Wahlen</td><td class="zeit">18:00</td><td class="zeit">06:00</td></tr>
+<tr><td><span class="badge" style="background:#6c3483">N</span></td><td class="name">Fijuljanin</td><td class="zeit">18:00</td><td class="zeit">06:00</td></tr>
+<tr><td><span class="badge" style="background:#6c3483">N</span></td><td class="name">Köller</td><td class="zeit">18:00</td><td class="zeit">06:00</td></tr>
+<tr><td><span class="badge" style="background:#6c3483">N10</span></td><td class="name">Blei Pa</td><td class="zeit">21:00</td><td class="zeit">07:00</td></tr>
+</tbody></table>
+</div>
+
+  <div class="card full-width">
+  <div class="card-header krank">🤒 Krank / Abwesend <span class="count-badge">4</span></div>
+<div class="sub-header">Krank – Nachtdienst Dispo</div><table>
+<thead><tr><th>Kürzel</th><th>Name</th><th>Von</th><th>Bis</th></tr></thead>
+<tbody>
+<tr class="krank-row"><td><span class="badge badge-krank">Dispo (N)</span></td><td class="name krank-name">Lytek</td><td class="zeit krank-dienst">DN(?)</td><td class="zeit">19:00 – 07:00</td></tr>
+</tbody></table>
+<div class="sub-header">Krank – Nachtdienst Betreuer</div><table>
+<thead><tr><th>Kürzel</th><th>Name</th><th>Von</th><th>Bis</th></tr></thead>
+<tbody>
+<tr class="krank-row"><td><span class="badge badge-krank">Betreuer (N)</span></td><td class="name krank-name">Weigel</td><td class="zeit krank-dienst">N</td><td class="zeit">18:00 – 06:00</td></tr>
+<tr class="krank-row"><td><span class="badge badge-krank">Betreuer (N)</span></td><td class="name krank-name">Steinfeld</td><td class="zeit krank-dienst">N10</td><td class="zeit">21:00 – 07:00</td></tr>
+<tr class="krank-row"><td><span class="badge badge-krank">Betreuer (N)</span></td><td class="name krank-name">Tunahan</td><td class="zeit krank-dienst">N10</td><td class="zeit">21:00 – 07:00</td></tr>
+</tbody></table>
+</div>
+
+</main>
+
+<script>
+function reloadPage() {
+    location.reload();
+}
+// Zeigt die Zeit seit der letzten Generierung an
+(function() {
+    var genTs = document.getElementById('gen-ts');
+    if (!genTs) return;
+    var ts = parseInt(genTs.dataset.ts, 10);
+    function update() {
+        var diff = Math.round((Date.now() - ts * 1000) / 60000);
+        var txt = diff < 1 ? 'gerade eben' : 'vor ' + diff + ' Min.';
+        var el = document.getElementById('stand-relative');
+        if (el) el.textContent = txt;
+    }
+    update();
+    setInterval(update, 30000);
+})();
+</script>
+</body>
+</html>
