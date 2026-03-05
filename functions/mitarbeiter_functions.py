@@ -12,7 +12,7 @@ from typing import Optional
 from datetime import date, datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from database.connection import db_cursor
+from database.connection import ma_db_cursor
 from database.models import Mitarbeiter
 
 
@@ -45,7 +45,7 @@ def _row_to_ma(row: dict) -> Mitarbeiter:
 
 def get_alle_mitarbeiter(nur_aktive: bool = False) -> list[Mitarbeiter]:
     """Gibt alle Mitarbeiter aus der Datenbank zurück."""
-    with db_cursor() as cur:
+    with ma_db_cursor() as cur:
         if nur_aktive:
             cur.execute(
                 "SELECT * FROM mitarbeiter WHERE status='aktiv' "
@@ -60,7 +60,7 @@ def get_alle_mitarbeiter(nur_aktive: bool = False) -> list[Mitarbeiter]:
 
 def get_mitarbeiter_by_id(mitarbeiter_id: int) -> Optional[Mitarbeiter]:
     """Gibt einen Mitarbeiter anhand der ID zurück."""
-    with db_cursor() as cur:
+    with ma_db_cursor() as cur:
         cur.execute("SELECT * FROM mitarbeiter WHERE id=?", (mitarbeiter_id,))
         row = cur.fetchone()
         return _row_to_ma(row) if row else None
@@ -68,7 +68,7 @@ def get_mitarbeiter_by_id(mitarbeiter_id: int) -> Optional[Mitarbeiter]:
 
 def mitarbeiter_erstellen(m: Mitarbeiter) -> Mitarbeiter:
     """Erstellt einen neuen Mitarbeiter in der Datenbank."""
-    with db_cursor(commit=True) as cur:
+    with ma_db_cursor(commit=True) as cur:
         cur.execute(
             """INSERT INTO mitarbeiter
                (vorname, nachname, personalnummer, funktion, position,
@@ -95,7 +95,7 @@ def mitarbeiter_erstellen(m: Mitarbeiter) -> Mitarbeiter:
 
 def mitarbeiter_aktualisieren(m: Mitarbeiter) -> bool:
     """Aktualisiert einen bestehenden Mitarbeiter."""
-    with db_cursor(commit=True) as cur:
+    with ma_db_cursor(commit=True) as cur:
         cur.execute(
             """UPDATE mitarbeiter SET
                vorname=?, nachname=?, personalnummer=?, funktion=?,
@@ -122,7 +122,7 @@ def mitarbeiter_aktualisieren(m: Mitarbeiter) -> bool:
 
 def mitarbeiter_loeschen(mitarbeiter_id: int) -> bool:
     """Löscht einen Mitarbeiter anhand der ID."""
-    with db_cursor(commit=True) as cur:
+    with ma_db_cursor(commit=True) as cur:
         cur.execute("DELETE FROM mitarbeiter WHERE id=?", (mitarbeiter_id,))
         return True
 
@@ -130,7 +130,7 @@ def mitarbeiter_loeschen(mitarbeiter_id: int) -> bool:
 def mitarbeiter_suchen(suchbegriff: str) -> list[Mitarbeiter]:
     """Sucht Mitarbeiter nach Name, Personalnummer oder Position (case-insensitive)."""
     q = f"%{suchbegriff.lower()}%"
-    with db_cursor() as cur:
+    with ma_db_cursor() as cur:
         cur.execute(
             """SELECT * FROM mitarbeiter
                WHERE lower(vorname) LIKE ?
@@ -146,7 +146,7 @@ def mitarbeiter_suchen(suchbegriff: str) -> list[Mitarbeiter]:
 
 def get_abteilungen() -> list[str]:
     """Gibt alle Abteilungsnamen zurück."""
-    with db_cursor() as cur:
+    with ma_db_cursor() as cur:
         cur.execute("SELECT name FROM abteilungen ORDER BY name")
         rows = cur.fetchall()
         return [r["name"] for r in rows] if rows else ["Erste-Hilfe-Station"]
@@ -154,11 +154,23 @@ def get_abteilungen() -> list[str]:
 
 def get_positionen() -> list[str]:
     """Gibt alle Positionsnamen zurück."""
-    with db_cursor() as cur:
+    with ma_db_cursor() as cur:
         cur.execute("SELECT name FROM positionen ORDER BY name")
         rows = cur.fetchall()
         return [r["name"] for r in rows] if rows else ["Rettungssanitäter"]
 
+def lade_mitarbeiter_namen(nur_aktive: bool = True) -> list[str]:
+    """
+    Gibt eine sortierte Liste aller Mitarbeiter-Namen als
+    'Nachname, Vorname' zurück (für ComboBoxen in Dokument-Dialogen).
+    """
+    with ma_db_cursor() as cur:
+        sql = "SELECT vorname, nachname FROM mitarbeiter"
+        if nur_aktive:
+            sql += " WHERE status='aktiv'"
+        sql += " ORDER BY nachname, vorname"
+        cur.execute(sql)
+        return [f"{r['nachname']}, {r['vorname']}" for r in cur.fetchall()]
 
 # ── Excel-Import ───────────────────────────────────────────────────────────────
 
@@ -235,7 +247,7 @@ def importiere_aus_dienstplaenen(
     uebersprungen = 0
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    with db_cursor(commit=True) as cur:
+    with ma_db_cursor(commit=True) as cur:
         # Bereits vorhandene Namen (lower) laden
         cur.execute("SELECT lower(vorname), lower(nachname) FROM mitarbeiter")
         vorhandene = {

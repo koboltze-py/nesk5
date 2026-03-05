@@ -36,8 +36,9 @@ BASE_DIR  = _find_base_dir()
 # Die Datenbank liegt im Unterordner "database SQL" des Projektverzeichnisses.
 # Im EXE-Modus zeigt BASE_DIR auf den OneDrive-Ordner des angemeldeten Nutzers.
 _DB_DIR = os.path.join(BASE_DIR, "database SQL")
-DB_PATH      = os.path.join(_DB_DIR, "nesk3.db")
-ARCHIV_DB_PATH = os.path.join(_DB_DIR, "archiv.db")
+DB_PATH             = os.path.join(_DB_DIR, "nesk3.db")
+ARCHIV_DB_PATH      = os.path.join(_DB_DIR, "archiv.db")
+MITARBEITER_DB_PATH = os.path.join(_DB_DIR, "mitarbeiter.db")
 os.makedirs(_DB_DIR, exist_ok=True)
 
 # ─── Anwendungseinstellungen ──────────────────────────────────────────────────

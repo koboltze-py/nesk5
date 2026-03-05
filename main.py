@@ -154,6 +154,13 @@ def main():
         print(f"[WARNUNG] Datenbankinitialisierung fehlgeschlagen: {e}")
         print("[INFO] Bitte Datenbankverbindung in config.py konfigurieren.")
 
+    # Mitarbeiter-Datenbank initialisieren (database SQL/mitarbeiter.db)
+    try:
+        from database.connection import init_mitarbeiter_db
+        init_mitarbeiter_db()
+    except Exception as e:
+        print(f"[WARNUNG] Mitarbeiter-DB Initialisierung fehlgeschlagen: {e}")
+
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
