@@ -5,6 +5,42 @@ Format: `[Datum] Beschreibung – betroffene Dateien`
 
 ---
 
+## 11.03.2026 – v3.3.0
+
+### Patienten DRK Station – vollständiges medizinisches Protokoll
+
+#### `gui/dienstliches.py`
+- **Erweitertes DB-Schema** mit 35+ Feldern + automatische Migration (ALTER TABLE) bestehender Datenbanken
+- **`_PatientenDialog`** komplett neu: 12 Abschnitte
+  - 1 │ Zeit & Dauer
+  - 2 │ Patient (Typ: Fluggast / Mitarbeiter / Besucher / Handwerker / Sonstiges, Abteilung, Name, Alter, Geschlecht)
+  - 3 │ Ereignis (Was / Wie / Ort)
+  - 4 │ Beschwerdebild (Beschwerdeart, Symptome)
+  - 5 │ ABCDE-Schema (Airway / Breathing / Circulation / Disability / Exposure)
+  - 6 │ Monitoring (BZ / RR / SpO2 / HF)
+  - 7 │ Vorerkrankungen & Medikamente des Patienten
+  - 8 │ Behandlung (Diagnose, Maßnahmen, Medikamentengabe)
+  - 9 │ Verbrauchsmaterial (Tabelle mit Material, Menge, Einheit)
+  - 10 │ Arbeitsunfall / BG-Fall
+  - 11 │ Personal & Abschluss (DRK MA 1/2, Weitergeleitet an)
+  - 12 │ Bemerkung
+- **`_PatientenTab`**: 13 Spalten, BG-Fall rot hervorgehoben
+- **`export_patient_word()`**: Erstellt formatiertes Word-Protokoll (.docx) mit DRK-Logo, DRK-Rot/Blau-Formatierung, allen 11 Abschnitten
+- **`_PatientenMailDialog`**: Outlook-Entwurf mit .docx-Anhang, vorausgefüllter Betreff/Body
+- **Buttons in `_PatientenTab`**: `📄 Word-Protokoll` + `📧 Per E-Mail senden`
+- **`_PATIENTEN_PROTO_DIR`**: Speicherort `Daten/Patienten Station/Protokolle/`
+
+#### `functions/dienstplan_parser.py`
+- PermissionError-Fix beim Öffnen der Dienstplan-Excel-Datei
+
+#### `gui/backup_widget.py` _(neu)_
+- Backup-Widget für die GUI
+
+#### `.gitignore`
+- `demo/`, `Daten/Patienten Station/`, `Daten/Einsatz/Protokolle/`, `Daten/AOCC/*.xlsm`, `build_log.txt` aus Tracking ausgeschlossen
+
+---
+
 ## 08.03.2026 – v3.2.0
 
 ### Telefonnummern-Verzeichnis (neues Modul)
