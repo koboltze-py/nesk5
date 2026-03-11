@@ -18,3 +18,10 @@ dist/
 build/
 .idea/
 .vscode/
+
+# Laufzeit-Daten (nicht tracken, aber Dateien lokal behalten)
+demo/
+Daten/Patienten Station/
+Daten/Einsatz/Protokolle/
+Daten/AOCC/*.xlsm
+build_log.txt
