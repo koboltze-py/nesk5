@@ -49,9 +49,9 @@ def _db_startup_backup():
             src.backup(dst)
             dst.close()
             src.close()
-            # Nur die letzten 7 Backups behalten
+            # Nur die letzten 5 Backups behalten
             alle = sorted(glob.glob(os.path.join(backup_dir, f"{name}_*.db")))
-            for alt in alle[:-7]:
+            for alt in alle[:-5]:
                 try:
                     os.remove(alt)
                 except Exception:
