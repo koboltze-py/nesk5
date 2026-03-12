@@ -39,6 +39,7 @@ from functions.fahrzeug_functions import (
 )
 from functions.verspaetung_db import lade_verspaetungen_fuer_datum as lade_vsp_aus_db
 from functions.verspaetung_db import lade_verspaetungen_letzter_zeitraum as lade_vsp_7_tage
+from functions.verspaetung_db import verspaetung_speichern as vsp_db_speichern
 from functions.mitarbeiter_functions import lade_mitarbeiter_namen
 
 # ── Farben ──────────────────────────────────────────────────────────────────
@@ -481,7 +482,7 @@ class UebergabeWidget(QWidget):
             "border-radius:4px;padding:2px 10px;color:#b06000;font-size:11px;}"
             "QPushButton:hover{background:#ffe0b0;}"
         )
-        self._btn_add_verspaetung.clicked.connect(self._add_verspaetung_row)
+        self._btn_add_verspaetung.clicked.connect(self._manuell_verspaetung_erfassen)
         self._btn_add_verspaetung_db_picker = QPushButton("👤 Aus DB wählen")
         self._btn_add_verspaetung_db_picker.setFixedHeight(28)
         self._btn_add_verspaetung_db_picker.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -973,42 +974,41 @@ class UebergabeWidget(QWidget):
                 if _k not in _seen_db:
                     db_eintraege.append(_e)
                     _seen_db.add(_k)
-        except Exception:
-            pass
+        except Exception as _exc:
+            print(f"[VSP] Fehler beim Laden: {_exc}")
         self._verspaetungen_db_entries = list(db_eintraege)
 
-        # Gespeicherte Einträge aus uebergabe_verspaetungen
-        eintraege = lade_verspaetungen(protokoll_id) if protokoll_id else []
-        # Schlüsselmenge der bereits gespeicherten Einträge (Name + Soll-Zeit)
-        saved_keys = {
-            (e["mitarbeiter"] if isinstance(e, dict) else e[0],
-             e["soll_zeit"]   if isinstance(e, dict) else e[1])
-            for e in eintraege
-        }
-
-        # Schreibgeschützte MA-Doku-Einträge anzeigen (nur wenn NICHT schon als orange gespeichert)
-        ungespreicherte_db = [
-            e for e in db_eintraege
-            if (e.get("mitarbeiter", ""), e.get("dienstbeginn", "")) not in saved_keys
-        ]
-        if ungespreicherte_db:
+        # Blaue Einträge aus verspaetungen.db IMMER anzeigen (auch nach Speichern)
+        blue_keys = {(e.get("mitarbeiter", ""), e.get("dienstbeginn", "")) for e in db_eintraege}
+        if db_eintraege:
             hdr = QLabel("📋 Aus Mitarbeiter-Dokumente (schreibgeschützt):")
             hdr.setStyleSheet(
                 "color:#1a6b8a;font-size:10px;font-weight:bold;border:none;"
             )
             self._verspaetungen_section_layout.addWidget(hdr)
-            for e in ungespreicherte_db:
+            for e in db_eintraege:
                 self._add_verspaetung_db_row(e)
 
-        # Gespeicherte Einträge anzeigen
-        if eintraege:
-            for e in eintraege:
+        # Legacy-Einträge aus uebergabe_verspaetungen: nur anzeigen wenn sie NICHT in verspaetungen.db
+        eintraege = lade_verspaetungen(protokoll_id) if protokoll_id else []
+        legacy = [
+            e for e in eintraege
+            if (e["mitarbeiter"] if isinstance(e, dict) else e[0],
+                e["soll_zeit"]   if isinstance(e, dict) else e[1]) not in blue_keys
+        ]
+        if legacy:
+            if db_eintraege:
+                legacy_hdr = QLabel("🗂 Ältere gespeicherte Einträge:")
+                legacy_hdr.setStyleSheet("color:#888;font-size:10px;font-weight:bold;border:none;")
+                self._verspaetungen_section_layout.addWidget(legacy_hdr)
+            for e in legacy:
                 name = e["mitarbeiter"] if isinstance(e, dict) else e[0]
                 soll = e["soll_zeit"]   if isinstance(e, dict) else e[1]
                 ist  = e["ist_zeit"]    if isinstance(e, dict) else e[2]
                 self._add_verspaetung_row(name=name, soll_zeit=soll, ist_zeit=ist,
                                           _skip_hint_remove=True)
-        elif not ungespreicherte_db:
+
+        if not db_eintraege and not legacy:
             hint = QLabel("✅ Keine Verspätungen eingetragen – ➕ hinzufügen")
             hint.setStyleSheet("color: #aaa; font-size: 10px; border: none;")
             self._verspaetungen_section_layout.addWidget(hint)
@@ -1068,10 +1068,22 @@ class UebergabeWidget(QWidget):
             if sel:
                 self._add_verspaetung_row(name=sel.text())
 
-    def _versp_erfassungs_dialog(self) -> tuple[str, str, str] | None:
+    def _manuell_verspaetung_erfassen(self):
+        """Neuen Eintrag per Dialog erfassen, in verspaetungen.db speichern und blau anzeigen."""
+        result = self._versp_erfassungs_dialog()
+        if result is None:
+            return
+        try:
+            vsp_db_speichern(result)
+        except Exception as e:
+            QMessageBox.warning(self, "Fehler", f"Eintrag konnte nicht gespeichert werden:\n{e}")
+            return
+        self._rebuild_verspaetungen_section(self._aktives_protokoll_id)
+
+    def _versp_erfassungs_dialog(self) -> dict | None:
         """
         Öffnet einen vollständigen Erfassungsdialog für eine Verspätung.
-        Gibt (name, soll_zeit, ist_zeit) zurück oder None bei Abbruch.
+        Gibt ein dict für verspaetung_speichern() zurück oder None bei Abbruch.
         """
         _DIENST_ITEMS = [
             ("T – Tagdienst (06:00)",     "T",   "06:00"),
@@ -1097,6 +1109,13 @@ class UebergabeWidget(QWidget):
         form = QFormLayout()
         form.setSpacing(8)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # Datum des Zu-spät-Kommens
+        datum_edit = QDateEdit(self._f_datum.date())
+        datum_edit.setDisplayFormat("dd.MM.yyyy")
+        datum_edit.setCalendarPopup(True)
+        datum_edit.setMinimumWidth(130)
+        form.addRow("Datum (Tag des Vorfalls) *:", datum_edit)
 
         # Mitarbeiter
         ma_combo = QComboBox()
@@ -1209,7 +1228,23 @@ class UebergabeWidget(QWidget):
         a = antritt_edit.time()
         soll = f"{b.hour():02d}:{b.minute():02d}"
         ist  = f"{a.hour():02d}:{a.minute():02d}"
-        return ma, soll, ist
+        diff_min = (a.hour() * 60 + a.minute()) - (b.hour() * 60 + b.minute())
+        verspaetung_min = diff_min if diff_min > 0 else 0
+        qd = datum_edit.date()
+        datum_str = f"{qd.day():02d}.{qd.month():02d}.{qd.year()}"
+        idx = dienst_combo.currentIndex()
+        dienst_code = _DIENST_ITEMS[idx][1]
+        return {
+            "mitarbeiter":    ma,
+            "datum":          datum_str,
+            "dienst":         dienst_code,
+            "dienstbeginn":   soll,
+            "dienstantritt":  ist,
+            "verspaetung_min": verspaetung_min,
+            "begruendung":    "",
+            "aufgenommen_von": "",
+            "dokument_pfad":  "",
+        }
 
     def _pick_from_verspaetungen_db(self):
         """Auswahl aus allen Verspätungen der letzten 7 Tage."""
@@ -1273,14 +1308,9 @@ class UebergabeWidget(QWidget):
 
     def _add_verspaetung_row(self, name: str = "", soll_zeit: str = "", ist_zeit: str = "",
                               _skip_hint_remove: bool = False):
-        """Fügt eine neue Verspätungs-Zeile hinzu.
-        Wird ohne Parameter aufgerufen („manuell‟), öffnet zuerst einen Erfassungsdialog."""
-        if not name and not soll_zeit and not ist_zeit:
-            # Dialog öffnen
-            result = self._versp_erfassungs_dialog()
-            if result is None:
-                return
-            name, soll_zeit, ist_zeit = result
+        """Fügt eine Legacy-Verspätungs-Zeile (orange) hinzu (für DB-Picker / Altdaten)."""
+        if not name:
+            return  # Immer mit Name aufrufen – manueller Add: _manuell_verspaetung_erfassen()
 
         if not _skip_hint_remove and self._verspaetungen_section_layout.count() > 0:
             first = self._verspaetungen_section_layout.itemAt(0)
