@@ -1,5 +1,6 @@
 Backup Data/
 backup/*.zip
+backup/bak_*/
 database SQL/
 Exe/
 build_tmp/
