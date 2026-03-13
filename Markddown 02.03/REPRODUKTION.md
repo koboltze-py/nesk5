@@ -129,3 +129,95 @@ with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
 print('Backup:', zip_path)
 "
 ```
+
+---
+
+## Notfall-Recovery – Komplettwiederherstellung aus Git
+
+> Der **einzig zuverlässige Weg**, die App vollständig wiederherzustellen, ist das Git-Repository.
+> Die MD-Dateien helfen beim Verstehen und Einrichten – aber sie ersetzen nicht den Quellcode.
+
+### Repository
+
+```
+https://github.com/koboltze-py/nesk5
+```
+
+### Schritt-für-Schritt Recovery
+
+#### 1. Repository klonen (neuer PC / neuer Ordner)
+
+```powershell
+git clone https://koboltze-py@github.com/koboltze-py/nesk5.git "Nesk3"
+cd "Nesk3"
+```
+
+#### 2. Python-Abhängigkeiten installieren
+
+```powershell
+pip install PySide6 openpyxl python-docx pywin32
+```
+
+#### 3. Pflichtordner anlegen
+
+```powershell
+New-Item -ItemType Directory -Force "database SQL"
+New-Item -ItemType Directory -Force "Backup Data\db_backups"
+New-Item -ItemType Directory -Force "Daten\Hilfe\screenshots"
+New-Item -ItemType Directory -Force "Daten\Dienstplan"
+New-Item -ItemType Directory -Force "Daten\Ausdrucke"
+New-Item -ItemType Directory -Force "json"
+```
+
+#### 4. App starten – Datenbanken werden auto-erstellt
+
+```powershell
+python main.py
+```
+
+Beim ersten Start erstellt `database/migrations.py` alle 8 Datenbankdateien automatisch:
+
+| Datei | Inhalt |
+|-------|--------|
+| `database SQL/nesk3.db` | Hauptdatenbank (Fahrzeuge, Übergabe, Settings) |
+| `database SQL/mitarbeiter.db` | Mitarbeiter-Stammdaten |
+| `database SQL/verspaetungen.db` | Verspätungs-Protokolle |
+| `database SQL/stellungnahmen.db` | Stellungnahmen |
+| `database SQL/telefonnummern.db` | Telefonnummern |
+| `database SQL/archiv.db` | Archiv |
+| `database SQL/patienten_station.db` | Patienten DRK Station |
+| `database SQL/einsaetze.db` | Einsätze |
+
+#### 5. Produktionsdaten wiederherstellen (falls vorhanden)
+
+Falls ein DB-Backup existiert (aus `Backup Data/db_backups/` oder SQL JSON-Backup):
+
+```powershell
+# Option A: DB-Dateien direkt kopieren
+Copy-Item "backup_DATUM\*.db" "database SQL\"
+
+# Option B: Aus SQL JSON-Backup importieren (App-intern)
+# Sidebar → Backup → "SQL-Backup wiederherstellen"
+```
+
+### Was ist NICHT im Repository (muss separat gesichert werden)
+
+| Was | Wo liegt es | Wie sichern |
+|-----|------------|-------------|
+| Datenbankdateien (`*.db`) | `database SQL/` | ZIP-Backup über App oder manuell |
+| Dienstplan-Excel | `Daten/Dienstplan/` | OneDrive / manuell |
+| Mitarbeiterdokumente | `Daten/Mitarbeiterdokumente/` | OneDrive / manuell |
+| Ausdrucke / Word-Protokolle | `Daten/Ausdrucke/` | OneDrive / manuell |
+| Einstellungen (Outlook-Signatur etc.) | In `nesk3.db` → `settings`-Tabelle | Enthalten im DB-Backup |
+
+### Schnell-Checkliste Recovery
+
+```
+[ ] git clone https://koboltze-py@github.com/koboltze-py/nesk5.git
+[ ] pip install PySide6 openpyxl python-docx pywin32
+[ ] Ordner anlegen (database SQL, Backup Data, Daten/...)
+[ ] DB-Backup einspielen (falls vorhanden)
+[ ] python main.py → App startet, DBs werden angelegt
+[ ] Einstellungen prüfen (Sidebar → Einstellungen)
+[ ] Outlook-Verbindung testen (Übergabe → E-Mail)
+```
