@@ -110,8 +110,36 @@ class StaerkemeldungExport:
         pax_p.runs[0].font.size = Pt(12)
         pax_p.runs[0].font.bold = True
 
-        doc.save(self.ausgabe_pfad)
-        return self.ausgabe_pfad, warnungen
+        # Zuerst in temporäre Datei speichern, dann umbenennen.
+        # Falls die Zieldatei in Word geöffnet ist (WinError 32),
+        # wird ein Ausweich-Dateiname mit Zeitstempel verwendet.
+        tmp_pfad = self.ausgabe_pfad + '.nesk3tmp'
+        pfad_final = self.ausgabe_pfad
+        try:
+            doc.save(tmp_pfad)
+            try:
+                if os.path.exists(pfad_final):
+                    os.replace(tmp_pfad, pfad_final)
+                else:
+                    os.rename(tmp_pfad, pfad_final)
+            except (PermissionError, OSError):
+                # Zieldatei gesperrt (z.B. in Word offen) → Ausweich-Name
+                base, ext = os.path.splitext(pfad_final)
+                ts = datetime.now().strftime('%H%M%S')
+                pfad_final = f'{base}_{ts}{ext}'
+                os.rename(tmp_pfad, pfad_final)
+                warnungen.append(
+                    f'Die Datei "{os.path.basename(self.ausgabe_pfad)}" war noch in Word geöffnet.\n'
+                    f'Das Dokument wurde stattdessen gespeichert als:\n{os.path.basename(pfad_final)}'
+                )
+        finally:
+            if os.path.exists(tmp_pfad):
+                try:
+                    os.remove(tmp_pfad)
+                except OSError:
+                    pass
+
+        return pfad_final, warnungen
 
     # ------------------------------------------------------------------
     # Private Methoden

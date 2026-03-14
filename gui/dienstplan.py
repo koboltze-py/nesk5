@@ -159,8 +159,6 @@ class ExportDialog(QDialog):
         self._parsed_data = parsed_data or {}
         self.result: dict | None = None
         self._checkboxen: list[tuple] = []   # (QCheckBox, vollname_lower)
-        self._pfad_auto   = True             # True = Pfad noch auto-generiert
-        self._ausgabe_pfad = ""
         self._build_ui()
 
     def _build_ui(self):
@@ -173,30 +171,18 @@ class ExportDialog(QDialog):
         self._von = QDateEdit(today)
         self._von.setCalendarPopup(True)
         self._von.setDisplayFormat("dd.MM.yyyy")
-        self._von.dateChanged.connect(self._update_default_pfad)
 
         self._bis = QDateEdit(today)
         self._bis.setCalendarPopup(True)
         self._bis.setDisplayFormat("dd.MM.yyyy")
-        self._bis.dateChanged.connect(self._update_default_pfad)
 
         self._pax = QSpinBox()
         self._pax.setRange(0, 99999)
         self._pax.setValue(0)
 
-        self._pfad_lbl = QLabel()
-        self._pfad_lbl.setWordWrap(True)
-        pfad_btn = QPushButton("Speicherort wählen ...")
-        pfad_btn.clicked.connect(self._choose_path)
-
-        # Standardpfad gleich setzen
-        self._update_default_pfad()
-
         form.addRow("Von:",       self._von)
         form.addRow("Bis:",       self._bis)
         form.addRow("PAX-Zahl:", self._pax)
-        form.addRow("Datei:",    pfad_btn)
-        form.addRow("",          self._pfad_lbl)
         layout.addLayout(form)
 
         # -- Sonderdienst-Abschnitt -------------------------------------
@@ -273,43 +259,22 @@ class ExportDialog(QDialog):
         btn_row.addWidget(export_btn)
         layout.addLayout(btn_row)
 
-    def _make_default_pfad(self) -> str:
-        """Erstellt Standardpfad mit Von-Bis-Datum im Ordner 06_Stärkemeldung."""
-        ziel_dir = self._STAERKEMELDUNG_DIR
-        if not os.path.isdir(ziel_dir):
-            ziel_dir = os.path.expanduser("~")
+    def _export(self):
+        # Speicherort wählen
+        ziel_dir = self._STAERKEMELDUNG_DIR if os.path.isdir(self._STAERKEMELDUNG_DIR) else os.path.expanduser("~")
         qv = self._von.date()
         qb = self._bis.date()
         von_str = f"{qv.day():02d}.{qv.month():02d}.{qv.year()}"
         bis_str = f"{qb.day():02d}.{qb.month():02d}.{qb.year()}"
         if qv == qb:
-            name = f"Stärkemeldung {von_str}.docx"
+            default_name = f"Stärkemeldung {von_str}.docx"
         else:
-            name = f"Stärkemeldung {von_str} - {bis_str}.docx"
-        return os.path.join(ziel_dir, name)
-
-    def _update_default_pfad(self):
-        """Pfad nur aktualisieren wenn noch auto-generiert (kein manueller Pfad)."""
-        if self._pfad_auto:
-            self._ausgabe_pfad = self._make_default_pfad()
-            self._pfad_lbl.setText(self._ausgabe_pfad)
-            self._pfad_lbl.setStyleSheet("color: #333;")
-
-    def _choose_path(self):
-        default = self._ausgabe_pfad or self._make_default_pfad()
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Ausgabedatei wählen", default,
+            default_name = f"Stärkemeldung {von_str} - {bis_str}.docx"
+        ausgabe_pfad, _ = QFileDialog.getSaveFileName(
+            self, "Speicherort wählen", os.path.join(ziel_dir, default_name),
             "Word-Dokument (*.docx)"
         )
-        if path:
-            self._ausgabe_pfad = path
-            self._pfad_auto    = False
-            self._pfad_lbl.setText(path)
-            self._pfad_lbl.setStyleSheet("color: #333;")
-
-    def _export(self):
-        if not self._ausgabe_pfad:
-            QMessageBox.warning(self, "Kein Pfad", "Bitte zuerst einen Speicherort wählen.")
+        if not ausgabe_pfad:
             return
 
         # PAX-Zahl = 0 → Nutzer darauf aufmerksam machen
@@ -327,14 +292,12 @@ class ExportDialog(QDialog):
                 self._pax.selectAll()
                 return
 
-        qv = self._von.date()
-        qb = self._bis.date()
         ausgeschlossene = {vn for cb, vn in self._checkboxen if cb.isChecked()}
         self.result = {
             'von_datum':               datetime(qv.year(), qv.month(), qv.day()),
             'bis_datum':               datetime(qb.year(), qb.month(), qb.day()),
             'pax_zahl':                self._pax.value(),
-            'ausgabe_pfad':            self._ausgabe_pfad,
+            'ausgabe_pfad':            ausgabe_pfad,
             'ausgeschlossene_vollnamen': ausgeschlossene,
         }
         self.accept()
@@ -1685,31 +1648,17 @@ class DienstplanWidget(QWidget):
                     "Export abgeschlossen mit Hinweisen:\n\n" + "\n".join(warnungen)
                 )
 
-            antwort = QMessageBox.question(
+            QMessageBox.information(
                 self, "Export erfolgreich",
-                f"Stärkemeldung gespeichert unter:\n{pfad}\n\nJetzt in Word öffnen?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes,
+                f"Stärkemeldung gespeichert unter:\n{pfad}"
             )
-            if antwort == QMessageBox.StandardButton.Yes:
-                os.startfile(pfad)
-
-            # Nochmal nach anderem Speicherort fragen (z.B. für E-Mail-Anhang)
-            kopie_pfad, _ = QFileDialog.getSaveFileName(
-                self,
-                "Kopie speichern unter …",
-                pfad,
-                "Word-Dokumente (*.docx)",
-            )
-            if kopie_pfad:
-                import shutil
-                shutil.copy2(pfad, kopie_pfad)
 
             pane._status_lbl.setText(f"Word-Export: {os.path.basename(pfad)}")
             pane._status_lbl.setStyleSheet("color: #107e3e; padding: 2px 0;")
 
         except Exception as e:
             QMessageBox.critical(self, "Fehler beim Export", f"Fehler:\n{e}")
+            return
 
     # ------------------------------------------------------------------
     # Stubs (DB-Anbindung folgt)
