@@ -1,23 +1,23 @@
 """
 Ladebildschirm (Splash Screen)
-Wird beim App-Start angezeigt während Backup, Migration und Turso-Sync laufen.
+Wird beim App-Start angezeigt während Backup, Migration und Sync laufen.
 """
 import os
 import sys
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QApplication
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont, QColor, QPainter, QBrush, QPen, QPixmap, QIcon
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QApplication
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap, QIcon
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# DRK-Farben
-_DRK_RED   = "#C8102E"
-_DRK_DARK  = "#1A1A2E"
-_DRK_CARD  = "#16213E"
-_DRK_BLUE  = "#0F3460"
-_WHITE     = "#FFFFFF"
-_GRAY      = "#B0B8C8"
+# Farben passend zum nesk3.ico Logo
+_BG      = "#253545"   # dunkler Hintergrund (tiefer als Logo-Basis)
+_CARD    = "#354A5D"   # Logo-Hauptfarbe (dominant im Icon)
+_ACCENT  = "#5B8AAA"   # hellblau-teal Akzent aus Logo-Palette
+_GOLD    = "#C0944A"   # gold/amber Akzent aus Logo
+_WHITE   = "#FFFFFF"
+_GRAY    = "#9BB5C8"   # helles blaugrau
 
 
 class SplashScreen(QWidget):
@@ -41,7 +41,7 @@ class SplashScreen(QWidget):
             | Qt.WindowType.SplashScreen
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setFixedSize(520, 320)
+        self.setFixedSize(480, 300)
         self._center()
         self._build_ui()
 
@@ -55,70 +55,88 @@ class SplashScreen(QWidget):
             )
 
     def _build_ui(self):
-        self.setStyleSheet(f"background-color: {_DRK_DARK};")
+        self.setStyleSheet(f"background-color: {_BG};")
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 36, 40, 28)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # ── Gold-Akzentstreifen oben ──────────────────────────────────────
+        top_band = QWidget()
+        top_band.setFixedHeight(4)
+        top_band.setStyleSheet(f"background-color: {_GOLD};")
+        outer.addWidget(top_band)
+
+        # ── Hauptbereich ──────────────────────────────────────────────────
+        content = QWidget()
+        content.setStyleSheet(f"background-color: {_BG};")
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(44, 28, 44, 22)
         layout.setSpacing(0)
+        outer.addWidget(content, 1)
 
-        # ── Rotes Trennband oben ──────────────────────────────────────────
-        band = QWidget()
-        band.setFixedHeight(5)
-        band.setStyleSheet(f"background-color: {_DRK_RED}; border-radius: 2px;")
-        layout.addWidget(band)
+        # ── Logo + Titel nebeneinander ────────────────────────────────────
+        header_row = QHBoxLayout()
+        header_row.setSpacing(24)
 
-        layout.addSpacing(24)
+        logo_lbl = QLabel()
+        logo_lbl.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        logo_px = self._load_logo(80)
+        logo_lbl.setPixmap(logo_px)
+        logo_lbl.setFixedSize(84, 84)
+        header_row.addWidget(logo_lbl)
 
-        # ── Logo-Bereich (Kreuz-Symbol) ───────────────────────────────────
-        logo_label = QLabel()
-        logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo_px = self._draw_red_cross(64)
-        logo_label.setPixmap(logo_px)
-        layout.addWidget(logo_label)
+        title_col = QVBoxLayout()
+        title_col.setSpacing(4)
+        title_col.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
-        layout.addSpacing(16)
-
-        # ── App-Titel ─────────────────────────────────────────────────────
         title = QLabel("NESK 3")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet(f"color: {_WHITE}; font-size: 28pt; font-weight: bold; letter-spacing: 4px;")
-        layout.addWidget(title)
+        title.setStyleSheet(
+            f"color: {_WHITE}; font-size: 30pt; font-weight: bold; "
+            f"letter-spacing: 3px; background: transparent;"
+        )
+        title_col.addWidget(title)
 
-        # ── Untertitel ────────────────────────────────────────────────────
         sub = QLabel("DRK Flughafen Köln/Bonn")
-        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sub.setStyleSheet(f"color: {_GRAY}; font-size: 11pt;")
-        layout.addWidget(sub)
+        sub.setStyleSheet(f"color: {_ACCENT}; font-size: 11pt; background: transparent;")
+        title_col.addWidget(sub)
 
-        layout.addSpacing(6)
-
-        # ── Version ───────────────────────────────────────────────────────
         if self._version:
             ver = QLabel(f"Version {self._version}")
-            ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            ver.setStyleSheet(f"color: {_GRAY}; font-size: 9pt; opacity: 0.7;")
-            layout.addWidget(ver)
+            ver.setStyleSheet(f"color: {_GRAY}; font-size: 9pt; background: transparent;")
+            title_col.addWidget(ver)
+
+        header_row.addLayout(title_col)
+        header_row.addStretch()
+        layout.addLayout(header_row)
 
         layout.addStretch()
 
+        # ── Trennlinie ────────────────────────────────────────────────────
+        line = QWidget()
+        line.setFixedHeight(1)
+        line.setStyleSheet(f"background-color: {_CARD};")
+        layout.addWidget(line)
+
+        layout.addSpacing(10)
+
         # ── Status-Zeile ──────────────────────────────────────────────────
         self._status = QLabel("Wird gestartet …")
-        self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._status.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self._status.setWordWrap(True)
-        self._status.setStyleSheet(f"color: {_GRAY}; font-size: 9pt;")
+        self._status.setStyleSheet(
+            f"color: {_GRAY}; font-size: 9pt; background: transparent;"
+        )
         layout.addWidget(self._status)
 
-        layout.addSpacing(8)
+        # ── Blauer Akzentstreifen unten ───────────────────────────────────
+        bot_band = QWidget()
+        bot_band.setFixedHeight(3)
+        bot_band.setStyleSheet(f"background-color: {_ACCENT};")
+        outer.addWidget(bot_band)
 
-        # ── Rotes Trennband unten ─────────────────────────────────────────
-        band2 = QWidget()
-        band2.setFixedHeight(3)
-        band2.setStyleSheet(f"background-color: {_DRK_RED}; border-radius: 1px;")
-        layout.addWidget(band2)
-
-    def _draw_red_cross(self, size: int) -> QPixmap:
-        """Zeichnet ein stilisiertes rotes Kreuz als Pixmap."""
-        # Prüfen ob icon-Datei vorhanden
+    def _load_logo(self, size: int) -> QPixmap:
+        """Lädt das nesk3.ico als Pixmap; Fallback: stilisiertes 'N'."""
         icon_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             "Daten", "Logo", "nesk3.ico"
@@ -129,20 +147,16 @@ class SplashScreen(QWidget):
             if not px.isNull():
                 return px
 
-        # Fallback: Kreuz zeichnen
+        # Fallback: stilisiertes "N" in Akzentfarbe
         px = QPixmap(size, size)
-        px.fill(Qt.GlobalColor.transparent)
+        px.fill(QColor(_CARD))
         painter = QPainter(px)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        red = QColor(_DRK_RED)
-        painter.setBrush(QBrush(red))
-        painter.setPen(QPen(Qt.PenStyle.NoPen))
-        arm = size // 3
-        cx = size // 2
-        # Waagerechter Balken
-        painter.drawRect(0, cx - arm // 2, size, arm)
-        # Senkrechter Balken
-        painter.drawRect(cx - arm // 2, 0, arm, size)
+        painter.setPen(QPen(QColor(_ACCENT), max(3, size // 10)))
+        m = int(size * 0.2)
+        painter.drawLine(m, m, m, size - m)
+        painter.drawLine(m, m, size - m, size - m)
+        painter.drawLine(size - m, m, size - m, size - m)
         painter.end()
         return px
 

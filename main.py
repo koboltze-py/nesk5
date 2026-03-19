@@ -199,16 +199,16 @@ def main():
             push_all_local_to_turso, init_sync_ts,
         )
         from backup.backup_manager import is_restore_pending, clear_restore_pending
-        splash.set_status("Turso-Schema wird geprüft …")
+        splash.set_status("Verbindung wird geprüft …")
         ensure_turso_schema()
         if is_restore_pending():
-            splash.set_status("Wiederhergestellte Daten werden nach Turso übertragen …")
+            splash.set_status("Daten werden übertragen …")
             print("[Start] Backup-Restore ausstehend: sende wiederhergestellte Daten nach Turso...")
             push_all_local_to_turso()
             clear_restore_pending()
             print("[Start] Turso wurde mit wiederhergestellten Daten aktualisiert.")
         else:
-            splash.set_status("Daten werden mit Turso synchronisiert …")
+            splash.set_status("Verbindung wird hergestellt …")
             pull_all()
         # Timestamp setzen – Hintergrundthread startet danach ohne Doppelpull
         init_sync_ts()
