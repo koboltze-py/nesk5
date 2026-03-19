@@ -41,6 +41,18 @@ def _row_to_ma(row: dict) -> Mitarbeiter:
         status=row.get("status", "aktiv") or "aktiv",
     )
 
+def _push_ma(table: str, row_id: int) -> None:
+    try:
+        import sqlite3
+        from database.turso_sync import push_row
+        conn = sqlite3.connect(_MA_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)).fetchone()
+        conn.close()
+        if row:
+            push_row(_MA_DB_PATH, table, dict(row))
+    except Exception:
+        pass
 
 # ── CRUD ───────────────────────────────────────────────────────────────────────
 
@@ -91,6 +103,7 @@ def mitarbeiter_erstellen(m: Mitarbeiter) -> Mitarbeiter:
             ),
         )
         m.id = cur.lastrowid
+    _push_ma("mitarbeiter", m.id)
     return m
 
 
@@ -118,7 +131,8 @@ def mitarbeiter_aktualisieren(m: Mitarbeiter) -> bool:
                 m.id,
             ),
         )
-        return True
+    _push_ma("mitarbeiter", m.id)
+    return True
 
 
 def mitarbeiter_loeschen(mitarbeiter_id: int) -> bool:

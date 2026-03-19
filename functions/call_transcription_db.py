@@ -16,6 +16,19 @@ def _get_conn() -> sqlite3.Connection:
     return conn
 
 
+def _push(table: str, row_id: int) -> None:
+    try:
+        from database.turso_sync import push_row
+        conn = sqlite3.connect(_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)).fetchone()
+        conn.close()
+        if row:
+            push_row(_DB_PATH, table, dict(row))
+    except Exception:
+        pass
+
+
 def init_db():
     """Erstellt die Tabellen beim ersten Start."""
     with _get_conn() as conn:
@@ -131,6 +144,7 @@ def speichern(daten: dict) -> int:
                 daten["id"],
             ))
             conn.commit()
+            _push("call_logs", daten["id"])
             return daten["id"]
         else:
             cur = conn.execute("""
@@ -156,7 +170,9 @@ def speichern(daten: dict) -> int:
                 1 if daten.get("erledigt") else 0,
             ))
             conn.commit()
-            return cur.lastrowid
+            new_id = cur.lastrowid
+            _push("call_logs", new_id)
+            return new_id
 
 
 def alle_laden(filter_text: str = "", kategorie: str = "", nur_offen: bool = False) -> list[dict]:
@@ -214,7 +230,9 @@ def textbaustein_speichern(gruppe: str, text: str) -> int:
             "INSERT INTO textbausteine (gruppe, text) VALUES (?,?)", (gruppe, text)
         )
         conn.commit()
-        return cur.lastrowid
+        new_id = cur.lastrowid
+        _push("textbausteine", new_id)
+        return new_id
 
 
 def textbaustein_loeschen(baustein_id: int):

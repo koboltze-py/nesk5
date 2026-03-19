@@ -10,6 +10,21 @@ from database.connection import db_cursor
 from config import DB_PATH as _NESK3_DB_PATH
 
 
+def _push(table: str, row_id: int) -> None:
+    """Liest eine Zeile neu aus der lokalen DB und pusht sie nach Turso (fire-and-forget)."""
+    try:
+        import sqlite3
+        from database.turso_sync import push_row
+        conn = sqlite3.connect(_NESK3_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)).fetchone()
+        conn.close()
+        if row:
+            push_row(_NESK3_DB_PATH, table, dict(row))
+    except Exception:
+        pass
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  FAHRZEUGE – Stammdaten
 # ══════════════════════════════════════════════════════════════════════════════
@@ -39,7 +54,10 @@ def erstelle_fahrzeug(
             INSERT INTO fahrzeug_status (fahrzeug_id, status, von, grund)
             VALUES (?, 'fahrbereit', date('now','localtime'), 'Fahrzeug angelegt')
         """, (fid,))
-        return fid
+        status_id = cur.lastrowid
+    _push("fahrzeuge", fid)
+    _push("fahrzeug_status", status_id)
+    return fid
 
 
 def aktualisiere_fahrzeug(
@@ -62,7 +80,10 @@ def aktualisiere_fahrzeug(
             WHERE id = ?
         """, (kennzeichen, typ, marke, modell, baujahr,
               fahrgestellnr, tuev_datum, notizen, fahrzeug_id))
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+    if ok:
+        _push("fahrzeuge", fahrzeug_id)
+    return ok
 
 
 def loesche_fahrzeug(fahrzeug_id: int) -> bool:
@@ -123,7 +144,9 @@ def setze_fahrzeug_status(
             INSERT INTO fahrzeug_status (fahrzeug_id, status, von, bis, grund)
             VALUES (?, ?, ?, ?, ?)
         """, (fahrzeug_id, status, von, bis, grund))
-        return cur.lastrowid
+        sid = cur.lastrowid
+    _push("fahrzeug_status", sid)
+    return sid
 
 
 def lade_status_historie(fahrzeug_id: int) -> list[dict]:
@@ -172,7 +195,10 @@ def aktualisiere_status_eintrag(
             SET status = ?, von = ?, bis = ?, grund = ?
             WHERE id = ?
         """, (status, von, bis or None, grund, eintrag_id))
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+    if ok:
+        _push("fahrzeug_status", eintrag_id)
+    return ok
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -192,7 +218,9 @@ def erstelle_schaden(
                 (fahrzeug_id, datum, beschreibung, schwere, kommentar)
             VALUES (?, ?, ?, ?, ?)
         """, (fahrzeug_id, datum, beschreibung, schwere, kommentar))
-        return cur.lastrowid
+        sid = cur.lastrowid
+    _push("fahrzeug_schaeden", sid)
+    return sid
 
 
 def aktualisiere_schaden(
@@ -211,7 +239,10 @@ def aktualisiere_schaden(
                 geaendert_am = datetime('now','localtime')
             WHERE id = ?
         """, (beschreibung, schwere, kommentar, behoben, behoben_am, schaden_id))
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+    if ok:
+        _push("fahrzeug_schaeden", schaden_id)
+    return ok
 
 
 def lade_schaeden(fahrzeug_id: int) -> list[dict]:
@@ -232,7 +263,10 @@ def markiere_schaden_behoben(schaden_id: int, behoben_am: str) -> bool:
                 geaendert_am = datetime('now','localtime')
             WHERE id = ?
         """, (behoben_am, schaden_id))
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+    if ok:
+        _push("fahrzeug_schaeden", schaden_id)
+    return ok
 
 
 def loesche_schaden(schaden_id: int) -> bool:
@@ -254,7 +288,10 @@ def markiere_schaden_gesendet(schaden_id: int) -> bool:
             "UPDATE fahrzeug_schaeden SET gesendet = 1, geaendert_am = datetime('now','localtime') WHERE id = ?",
             (schaden_id,)
         )
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+    if ok:
+        _push("fahrzeug_schaeden", schaden_id)
+    return ok
 
 
 def lade_schaeden_letzte_tage(tage: int = 7) -> list[dict]:
@@ -295,7 +332,9 @@ def erstelle_termin(
                 (fahrzeug_id, datum, uhrzeit, typ, titel, beschreibung, kommentar)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (fahrzeug_id, datum, uhrzeit, typ, titel, beschreibung, kommentar))
-        return cur.lastrowid
+        tid = cur.lastrowid
+    _push("fahrzeug_termine", tid)
+    return tid
 
 
 def aktualisiere_termin(
@@ -316,7 +355,10 @@ def aktualisiere_termin(
                 geaendert_am = datetime('now','localtime')
             WHERE id = ?
         """, (datum, uhrzeit, typ, titel, beschreibung, kommentar, erledigt, termin_id))
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+    if ok:
+        _push("fahrzeug_termine", termin_id)
+    return ok
 
 
 def lade_termine(fahrzeug_id: int) -> list[dict]:
@@ -336,7 +378,10 @@ def markiere_termin_erledigt(termin_id: int) -> bool:
             SET erledigt = 1, geaendert_am = datetime('now','localtime')
             WHERE id = ?
         """, (termin_id,))
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+    if ok:
+        _push("fahrzeug_termine", termin_id)
+    return ok
 
 
 def loesche_termin(termin_id: int) -> bool:

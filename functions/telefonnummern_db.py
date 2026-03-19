@@ -63,6 +63,19 @@ def _db():
         con.close()
 
 
+def _push(table: str, row_id: int) -> None:
+    try:
+        from database.turso_sync import push_row
+        conn = sqlite3.connect(_DB_PFAD, timeout=5)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)).fetchone()
+        conn.close()
+        if row:
+            push_row(str(_DB_PFAD), table, dict(row))
+    except Exception:
+        pass
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 #  Excel-Parser
 # ──────────────────────────────────────────────────────────────────────────────
@@ -397,7 +410,9 @@ def eintrag_speichern(daten: dict) -> int:
                 daten.get("bemerkung", ""),
             ),
         )
-        return cur.lastrowid
+        new_id = cur.lastrowid
+    _push("telefonnummern", new_id)
+    return new_id
 
 
 def eintrag_aktualisieren(entry_id: int, daten: dict) -> None:
@@ -418,6 +433,7 @@ def eintrag_aktualisieren(entry_id: int, daten: dict) -> None:
                 entry_id,
             ),
         )
+    _push("telefonnummern", entry_id)
 
 
 def eintrag_loeschen(entry_id: int) -> None:

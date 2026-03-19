@@ -9,6 +9,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database.connection import db_cursor
 from config import DB_PATH as _NESK3_DB_PATH
 
+def _push_ue(table: str, row_id: int) -> None:
+    try:
+        import sqlite3
+        from database.turso_sync import push_row
+        conn = sqlite3.connect(_NESK3_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)).fetchone()
+        conn.close()
+        if row:
+            push_row(_NESK3_DB_PATH, table, dict(row))
+    except Exception:
+        pass
 
 # ── Erstellen ──────────────────────────────────────────────────────────────────
 
@@ -40,7 +52,9 @@ def erstelle_protokoll(
         """, (datum, schicht_typ, beginn_zeit, ende_zeit,
               patienten_anzahl, personal, ereignisse, massnahmen,
               uebergabe_notiz, ersteller, handys_anzahl, handys_notiz))
-        return cur.lastrowid
+        pid = cur.lastrowid
+    _push_ue("uebergabe_protokolle", pid)
+    return pid
 
 
 # ── Aktualisieren ──────────────────────────────────────────────────────────────
@@ -81,7 +95,10 @@ def aktualisiere_protokoll(
               ereignisse, massnahmen, uebergabe_notiz,
               ersteller, abzeichner, status,
               handys_anzahl, handys_notiz, protokoll_id))
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+    if ok:
+        _push_ue("uebergabe_protokolle", protokoll_id)
+    return ok
 
 
 # ── Laden ──────────────────────────────────────────────────────────────────────
@@ -153,7 +170,10 @@ def schliesse_protokoll_ab(protokoll_id: int, abzeichner: str) -> bool:
             SET status = 'abgeschlossen', abzeichner = ?
             WHERE id = ?
         """, (abzeichner, protokoll_id))
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+    if ok:
+        _push_ue("uebergabe_protokolle", protokoll_id)
+    return ok
 
 
 # ── Statistik ─────────────────────────────────────────────────────────────────

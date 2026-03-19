@@ -164,6 +164,19 @@ def _patienten_db():
         con.close()
 
 
+def _push_pat(table: str, row_id: int) -> None:
+    try:
+        from database.turso_sync import push_row
+        conn = sqlite3.connect(_PATIENTEN_DB_PFAD, timeout=5)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)).fetchone()
+        conn.close()
+        if row:
+            push_row(_PATIENTEN_DB_PFAD, table, dict(row))
+    except Exception:
+        pass
+
+
 def patient_speichern(daten: dict, verbrauchsmaterial: list[dict]) -> int:
     with _patienten_db() as con:
         cur = con.execute(
@@ -241,7 +254,14 @@ def patient_speichern(daten: dict, verbrauchsmaterial: list[dict]) -> int:
                 "INSERT INTO medikamente (patienten_id, medikament, dosis, applikation) VALUES (?, ?, ?, ?)",
                 (patienten_id, med.get("medikament", ""), med.get("dosis", ""), med.get("applikation", ""))
             )
-        return patienten_id
+    _push_pat("patienten", patienten_id)
+    try:
+        from database.turso_sync import push_replace_by_fk
+        push_replace_by_fk(_PATIENTEN_DB_PFAD, "verbrauchsmaterial", "patienten_id", patienten_id)
+        push_replace_by_fk(_PATIENTEN_DB_PFAD, "medikamente", "patienten_id", patienten_id)
+    except Exception:
+        pass
+    return patienten_id
 
 
 def patient_aktualisieren(row_id: int, daten: dict, verbrauchsmaterial: list[dict]) -> None:
@@ -323,6 +343,7 @@ def patient_aktualisieren(row_id: int, daten: dict, verbrauchsmaterial: list[dic
         push_replace_by_fk(_PATIENTEN_DB_PFAD, "medikamente", "patienten_id", row_id)
     except Exception:
         pass
+    _push_pat("patienten", row_id)
 
 
 def patient_loeschen(row_id: int) -> None:
@@ -451,6 +472,19 @@ def _db():
         con.close()
 
 
+def _push_ein(table: str, row_id: int) -> None:
+    try:
+        from database.turso_sync import push_row
+        conn = sqlite3.connect(_EINSATZ_DB_PFAD, timeout=5)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)).fetchone()
+        conn.close()
+        if row:
+            push_row(_EINSATZ_DB_PFAD, table, dict(row))
+    except Exception:
+        pass
+
+
 def einsatz_speichern(daten: dict) -> int:
     with _db() as con:
         cur = con.execute(
@@ -480,7 +514,9 @@ def einsatz_speichern(daten: dict) -> int:
                 "bemerkung":        daten.get("bemerkung", ""),
             },
         )
-        return cur.lastrowid
+        new_id = cur.lastrowid
+    _push_ein("einsaetze", new_id)
+    return new_id
 
 
 def einsatz_aktualisieren(row_id: int, daten: dict) -> None:
@@ -509,6 +545,7 @@ def einsatz_aktualisieren(row_id: int, daten: dict) -> None:
                 "bemerkung":        daten.get("bemerkung", ""),
             },
         )
+    _push_ein("einsaetze", row_id)
 
 
 def einsatz_loeschen(row_id: int) -> None:
@@ -572,6 +609,7 @@ def markiere_einsatz_gesendet(row_id: int) -> None:
     """Markiert einen Einsatz als per E-Mail versendet."""
     with _db() as con:
         con.execute("UPDATE einsaetze SET gesendet=1 WHERE id=?", (row_id,))
+    _push_ein("einsaetze", row_id)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

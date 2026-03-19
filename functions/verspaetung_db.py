@@ -19,6 +19,19 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _push(table: str, row_id: int) -> None:
+    try:
+        from database.turso_sync import push_row
+        conn = sqlite3.connect(_DB_PFAD, timeout=5)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)).fetchone()
+        conn.close()
+        if row:
+            push_row(str(_DB_PFAD), table, dict(row))
+    except Exception:
+        pass
+
+
 def _init_db():
     _DB_PFAD.parent.mkdir(parents=True, exist_ok=True)
     with _connect() as conn:
@@ -66,7 +79,9 @@ def verspaetung_speichern(daten: dict) -> int:
             ),
         )
         conn.commit()
-        return cur.lastrowid
+        new_id = cur.lastrowid
+    _push("verspaetungen", new_id)
+    return new_id
 
 
 def verspaetung_aktualisieren(entry_id: int, daten: dict):
@@ -94,6 +109,7 @@ def verspaetung_aktualisieren(entry_id: int, daten: dict):
             ),
         )
         conn.commit()
+    _push("verspaetungen", entry_id)
 
 
 def verspaetung_loeschen(entry_id: int):

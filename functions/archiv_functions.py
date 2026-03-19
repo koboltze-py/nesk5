@@ -344,8 +344,21 @@ def importiere_aus_archiv(
                     )
 
             count += 1
-
-        # Aus Archiv löschen
+            # Neu importiertes Protokoll + Sub-Einträge zu Turso pushen
+            try:
+                from database.turso_sync import push_row, push_replace_by_fk
+                conn2 = sqlite3.connect(_NESK3_DB_PATH)
+                conn2.row_factory = sqlite3.Row
+                row2 = conn2.execute(
+                    "SELECT * FROM uebergabe_protokolle WHERE id = ?", (new_id,)
+                ).fetchone()
+                conn2.close()
+                if row2:
+                    push_row(_NESK3_DB_PATH, "uebergabe_protokolle", dict(row2))
+                push_replace_by_fk(_NESK3_DB_PATH, "uebergabe_fahrzeug_notizen", "protokoll_id", new_id)
+                push_replace_by_fk(_NESK3_DB_PATH, "uebergabe_handy_eintraege", "protokoll_id", new_id)
+            except Exception:
+                pass
         arch_cur.execute(
             f"DELETE FROM uebergabe_protokolle WHERE id IN ({placeholders})",
             list(archiv_ids),
