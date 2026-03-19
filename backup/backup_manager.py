@@ -50,6 +50,23 @@ def _rmtree_lp(path: str):
         pass
 
 
+def _makedirs_lp(path: str):
+    """
+    os.makedirs-Ersatz mit Long-Path-Unterstützung.
+    Erstellt Verzeichnisse rekursiv auch wenn der Pfad > 260 Zeichen ist.
+    os.makedirs selbst funktioniert nicht zuverlässig mit \\\\?\\ Präfix.
+    """
+    if not path:
+        return
+    if os.path.isdir(_lp(path)):
+        return
+    _makedirs_lp(os.path.dirname(path))
+    try:
+        os.mkdir(_lp(path))
+    except FileExistsError:
+        pass
+
+
 def _ensure_backup_dir() -> str:
     """Erstellt das Backup-Verzeichnis falls nicht vorhanden."""
     path = os.path.join(BASE_DIR, BACKUP_DIR)
@@ -270,8 +287,20 @@ def list_restored_copies() -> list[dict]:
 # Gemeinsam.26-Ordner Backup
 # ---------------------------------------------------------------------------
 
-_GEMEINSAM_BACKUP_DIR = os.path.join(BASE_DIR, "Backup Data", "gemeinsam_backups")
+_GEMEINSAM_BACKUP_DIR   = os.path.join(BASE_DIR, "Backup Data", "gemeinsam_backups")
+_GEMEINSAM_BACKUP_LOKAL = r"C:\Daten\Backup Gemeinsam"
 _GEMEINSAM_SRC = os.path.join(os.path.dirname(BASE_DIR))  # parent von Nesk3 = !Gemeinsam.26
+
+# Ordner die vom Gemeinsam-Backup AUSGESCHLOSSEN werden
+_GEMEINSAM_AUSSCHLUSS = {
+    "Backup Daten",
+    "Copy Bauschke",
+    "python",
+    "Python App",
+    "Refresher 2026",
+    "Screenshots",
+    "Zertifikate",
+}
 
 
 def _gemeinsam_src_dir() -> str:
@@ -290,8 +319,12 @@ def get_gemeinsam_backup_stats() -> dict:
     letzte = 0.0
     nesk_pfad = os.path.normpath(os.path.dirname(BASE_DIR))  # .../Nesk
     for root, dirs, files in os.walk(src):
-        # Nesk-Ordner (→ enthält Nesk3) komplett überspringen
-        dirs[:] = [d for d in dirs if os.path.normpath(os.path.join(root, d)) != nesk_pfad]
+        # Nesk-Ordner und ausgeschlossene Ordner überspringen
+        dirs[:] = [
+            d for d in dirs
+            if os.path.normpath(os.path.join(root, d)) != nesk_pfad
+            and (root != src or d not in _GEMEINSAM_AUSSCHLUSS)
+        ]
         for f in files:
             fp = os.path.join(root, f)
             try:
@@ -313,84 +346,107 @@ def get_gemeinsam_backup_stats() -> dict:
 
 def create_gemeinsam_backup(inkrementell: bool = True, progress_callback=None) -> dict:
     """
-    Erstellt ein Backup des Gemeinsam.26 Ordners (ohne den Nesk-Unterordner).
-    Bei inkrementell=True werden nur geänderte Dateien kopiert.
+    Erstellt ein ZIP-Backup des Gemeinsam.26 Ordners (ohne Nesk + ausgeschlossene Ordner).
+    ZIP-Format umgeht alle Windows-Long-Path-Probleme am Zielort.
+    Inkrementell-Parameter hat keine Wirkung mehr (ZIP ist immer Vollbackup).
+    Rotation: max. 10 ZIPs je Ziel; alte Ordner-Backups werden einmalig bereinigt.
     """
     os.makedirs(_GEMEINSAM_BACKUP_DIR, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    ziel  = os.path.join(_GEMEINSAM_BACKUP_DIR, f"gemeinsam_{stamp}")
-    os.makedirs(ziel, exist_ok=True)
+    stamp    = datetime.now().strftime("%Y%m%d_%H%M%S")
+    zip_name = f"gemeinsam_{stamp}.zip"
+    zip_pfad = os.path.join(_GEMEINSAM_BACKUP_DIR, zip_name)
 
-    src = _gemeinsam_src_dir()
+    src       = _gemeinsam_src_dir()
     nesk_pfad = os.path.normpath(os.path.dirname(BASE_DIR))  # .../Nesk
 
-    # Dateien sammeln
+    # Dateien sammeln (Nesk + Ausschluss-Ordner überspringen)
     alle: list[str] = []
     for root, dirs, files in os.walk(src):
-        dirs[:] = [d for d in dirs if os.path.normpath(os.path.join(root, d)) != nesk_pfad]
+        dirs[:] = [
+            d for d in dirs
+            if os.path.normpath(os.path.join(root, d)) != nesk_pfad
+            and (root != src or d not in _GEMEINSAM_AUSSCHLUSS)
+        ]
         for f in files:
             alle.append(os.path.join(root, f))
 
-    gesamt = len(alle)
-    kopiert = 0
-    uebersprungen = 0
-    fehler = 0
+    gesamt       = len(alle)
+    kopiert      = 0
+    fehler       = 0
     fehler_liste: list[str] = []
 
-    for i, fp in enumerate(alle):
-        if progress_callback:
-            progress_callback(i + 1, gesamt, os.path.basename(fp))
-        rel = os.path.relpath(fp, src)
-        dst = os.path.join(ziel, rel)
-        try:
-            os.makedirs(_lp(os.path.dirname(dst)), exist_ok=True)
-            if inkrementell and os.path.exists(_lp(dst)):
-                if os.path.getmtime(_lp(fp)) <= os.path.getmtime(_lp(dst)):
-                    uebersprungen += 1
-                    continue
-            shutil.copy2(_lp(fp), _lp(dst))
-            kopiert += 1
-        except Exception as e:
-            fehler += 1
-            fehler_liste.append(f"{os.path.basename(fp)} ({type(e).__name__})")
-
-    if kopiert == 0 and uebersprungen > 0:
-        # Nichts Neues → leeren Ordner wieder entfernen
-        try:
-            _rmtree_lp(ziel)
-        except Exception:
-            pass
+    try:
+        with zipfile.ZipFile(zip_pfad, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+            for i, fp in enumerate(alle):
+                if progress_callback:
+                    progress_callback(i + 1, gesamt, os.path.basename(fp))
+                rel = os.path.relpath(fp, src)
+                try:
+                    # _lp() auf Quellpfad: liest auch Dateien mit langen OneDrive-Quellpfaden
+                    zf.write(_lp(fp), rel)
+                    kopiert += 1
+                except Exception as e:
+                    fehler += 1
+                    fehler_liste.append(f"{os.path.basename(fp)} ({type(e).__name__})")
+    except Exception as e:
         return {
-            "erfolg": True, "dateien_count": 0, "skipped_count": uebersprungen,
-            "error_count": fehler, "fehler_liste": fehler_liste,
-            "meldung": f"Kein neues Backup nötig – alle {uebersprungen} Dateien sind aktuell.",
+            "erfolg": False, "dateien_count": 0, "skipped_count": 0,
+            "error_count": 1, "fehler_liste": [],
+            "meldung": f"Fehler beim Erstellen der ZIP: {e}",
         }
 
-    meldung = (
-        f"Backup erstellt: {kopiert} Datei(en) gesichert"
-        + (f", {uebersprungen} unverändert übersprungen" if uebersprungen else "")
-        + (f", {fehler} Fehler" if fehler else "")
-        + f".\nSpeicherort: {ziel}"
-    )
-    if fehler_liste:
-        meldung += "\n\nNicht kopiert (Pfad zu lang oder Zugriffsfehler):\n" + "\n".join(f"  • {f}" for f in fehler_liste[:10])
-        if len(fehler_liste) > 10:
-            meldung += f"\n  ... und {len(fehler_liste) - 10} weitere"
-    # Rotation: max. 10 Backup-Ordner behalten
-    alle = sorted([
-        d for d in os.listdir(_GEMEINSAM_BACKUP_DIR)
-        if os.path.isdir(os.path.join(_GEMEINSAM_BACKUP_DIR, d))
-        and d.startswith('gemeinsam_')
-    ])
-    for alter in alle[:-10]:
+    zip_groesse_mb = round(os.path.getsize(zip_pfad) / (1024 * 1024), 1)
+
+    # Zweite Kopie lokal (C:\Daten\Backup Gemeinsam\ → kurzer Pfad, kein Long-Path-Problem)
+    pfad_lokal = ""
+    try:
+        os.makedirs(_GEMEINSAM_BACKUP_LOKAL, exist_ok=True)
+        pfad_lokal = os.path.join(_GEMEINSAM_BACKUP_LOKAL, zip_name)
+        shutil.copy2(zip_pfad, pfad_lokal)
+        # Lokale Rotation: max. 10 ZIPs
+        alle_lokal = sorted([f for f in os.listdir(_GEMEINSAM_BACKUP_LOKAL)
+                             if f.endswith('.zip') and f.startswith('gemeinsam_')])
+        for alt in alle_lokal[:-10]:
+            try:
+                os.remove(os.path.join(_GEMEINSAM_BACKUP_LOKAL, alt))
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[Gemeinsam-Backup] Lokale Kopie fehlgeschlagen: {e}")
+
+    # OneDrive-Rotation: max. 10 ZIPs, alte Ordner-Backups auch ausräumen
+    eintraege = os.listdir(_GEMEINSAM_BACKUP_DIR)
+    zips = sorted([f for f in eintraege if f.endswith('.zip') and f.startswith('gemeinsam_')])
+    for alt in zips[:-10]:
         try:
-            _rmtree_lp(os.path.join(_GEMEINSAM_BACKUP_DIR, alter))
+            os.remove(os.path.join(_GEMEINSAM_BACKUP_DIR, alt))
         except Exception:
             pass
+    # Alte Ordner-Backups (vor ZIP-Umstellung) ebenfalls löschen
+    for eintrag in eintraege:
+        pfad_alt = os.path.join(_GEMEINSAM_BACKUP_DIR, eintrag)
+        if os.path.isdir(pfad_alt) and eintrag.startswith('gemeinsam_'):
+            try:
+                _rmtree_lp(pfad_alt)
+            except Exception:
+                pass
+
+    meldung = (
+        f"Backup erstellt: {kopiert} Datei(en) gesichert ({zip_groesse_mb} MB)"
+        + (f", {fehler} Fehler" if fehler else "")
+        + f".\nZIP: {zip_name}"
+    )
+    if pfad_lokal:
+        meldung += f"\nLokale Kopie: {pfad_lokal}"
+    if fehler_liste:
+        meldung += "\n\nNicht gesichert:\n" + "\n".join(f"  • {f}" for f in fehler_liste[:10])
+        if len(fehler_liste) > 10:
+            meldung += f"\n  ... und {len(fehler_liste) - 10} weitere"
+
     return {
         "erfolg": True,
         "dateien_count": kopiert,
-        "skipped_count": uebersprungen,
+        "skipped_count": 0,
         "error_count": fehler,
         "fehler_liste": fehler_liste,
         "meldung": meldung,
@@ -398,30 +454,24 @@ def create_gemeinsam_backup(inkrementell: bool = True, progress_callback=None) -
 
 
 def list_gemeinsam_backups() -> list[dict]:
-    """Listet alle Gemeinsam.26 Backups auf."""
+    """Listet alle Gemeinsam.26 Backup-ZIPs auf (neueste zuerst)."""
     if not os.path.isdir(_GEMEINSAM_BACKUP_DIR):
         return []
     result = []
     for name in sorted(os.listdir(_GEMEINSAM_BACKUP_DIR), reverse=True):
-        pfad = os.path.join(_GEMEINSAM_BACKUP_DIR, name)
-        if not os.path.isdir(pfad):
+        if not (name.endswith('.zip') and name.startswith('gemeinsam_')):
             continue
-        dateien = []
-        g = 0
-        for root, _, files in os.walk(pfad):
-            for f in files:
-                fp = os.path.join(root, f)
-                try:
-                    g += os.path.getsize(fp)
-                except OSError:
-                    pass
-                dateien.append(fp)
-        mtime = os.path.getmtime(pfad)
+        pfad = os.path.join(_GEMEINSAM_BACKUP_DIR, name)
+        try:
+            groesse = os.path.getsize(pfad)
+            mtime   = os.path.getmtime(pfad)
+        except OSError:
+            continue
         result.append({
-            "dateiname": name,
-            "pfad": pfad,
-            "groesse_mb": round(g / (1024 * 1024), 1),
-            "erstellt": datetime.fromtimestamp(mtime).strftime("%d.%m.%Y %H:%M"),
+            "dateiname":  name,
+            "pfad":       pfad,
+            "groesse_mb": round(groesse / (1024 * 1024), 1),
+            "erstellt":   datetime.fromtimestamp(mtime).strftime("%d.%m.%Y %H:%M"),
         })
     return result
 
