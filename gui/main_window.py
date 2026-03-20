@@ -7,17 +7,138 @@ import os
 from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import math, time
+
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QPushButton, QLabel, QStackedWidget, QFrame, QSizePolicy, QMessageBox
+    QPushButton, QLabel, QStackedWidget, QFrame, QSizePolicy, QMessageBox,
+    QScrollArea,
 )
-from PySide6.QtCore import Qt, QSize, QTimer
-from PySide6.QtGui import QFont, QColor, QPixmap
+from PySide6.QtCore import Qt, QSize, QTimer, QRectF, QPointF
+from PySide6.QtGui import (
+    QFont, QColor, QPixmap, QPainter, QPen, QBrush,
+    QRadialGradient, QLinearGradient, QFontMetricsF,
+)
 
 from config import (
     APP_NAME, APP_VERSION, BASE_DIR,
     FIORI_SIDEBAR_BG, FIORI_BLUE, FIORI_WHITE, FIORI_LIGHT_BLUE, FIORI_TEXT
 )
+
+
+# ---------------------------------------------------------------------------
+# Animiertes NeSk-Logo-Widget (identisch mit SplashScreen, skaliert auf Sidebar)
+# ---------------------------------------------------------------------------
+class _NeskLogoWidget(QWidget):
+    """Rotierender Doppelring mit NeSk-Schriftzug und Shimmer — wie der Splash Screen."""
+
+    W, H = 200, 170
+
+    _RING1 = QColor("#5B8AAA")   # Teal
+    _RING2 = QColor("#C0944A")   # Gold
+    _ACCENT = QColor("#5B8AAA")
+    _GRAY   = QColor(74, 104, 128)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._t0 = time.monotonic()
+        self.setFixedSize(self.W, self.H)
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self.update)
+        self._timer.start(30)  # ~33 FPS
+
+    def paintEvent(self, event):
+        t  = time.monotonic() - self._t0
+        W, H = float(self.W), float(self.H)
+
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+
+        # Hintergrund — Sidebar-Farbe exakt
+        p.fillRect(0, 0, int(W), int(H), QBrush(QColor("#354a5e")))
+
+        # Ring-Mittelpunkt
+        cx, cy = W / 2, H * 0.42
+
+        # Winkel
+        ang1 = (t * 120.0) % 360.0
+        ang2 = (180.0 - t * 75.0) % 360.0
+
+        # Pulsierender Glow
+        glow_alpha = int(18 + 14 * math.sin(t * 2.2))
+        glow_r = 34.0
+        glow_grad = QRadialGradient(cx, cy, glow_r + 14)
+        glow_grad.setColorAt(0.0, QColor(91, 138, 170, glow_alpha * 2))
+        glow_grad.setColorAt(0.6, QColor(91, 138, 170, glow_alpha))
+        glow_grad.setColorAt(1.0, QColor(91, 138, 170, 0))
+        p.setBrush(QBrush(glow_grad))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(QRectF(cx - glow_r - 14, cy - glow_r - 14,
+                             (glow_r + 14) * 2, (glow_r + 14) * 2))
+
+        # Innerer dunkler Kreis
+        inner_r = 24.0
+        p.setBrush(QBrush(QColor("#2d4155")))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(QRectF(cx - inner_r, cy - inner_r,
+                             inner_r * 2, inner_r * 2))
+
+        # "N" in der Mitte
+        font_n = QFont("Segoe UI", 15, QFont.Weight.Light)
+        p.setFont(font_n)
+        fm_n = QFontMetricsF(font_n)
+        nw   = fm_n.horizontalAdvance("N")
+        p.setPen(QPen(self._RING1))
+        p.drawText(QPointF(cx - nw / 2, cy + fm_n.ascent() / 2 - 1), "N")
+
+        # Ring 1 (Teal, vorwärts)
+        r1_r = 31.0
+        p.setPen(QPen(self._RING1, 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawArc(QRectF(cx - r1_r, cy - r1_r, r1_r * 2, r1_r * 2),
+                  int(-ang1 * 16), 230 * 16)
+
+        # Ring 2 (Gold, rückwärts)
+        r2_r = 37.0
+        p.setPen(QPen(self._RING2, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawArc(QRectF(cx - r2_r, cy - r2_r, r2_r * 2, r2_r * 2),
+                  int(-ang2 * 16), 110 * 16)
+
+        # "NeSk" Schriftzug
+        ty = cy + 50.0
+        font_title = QFont("Segoe UI", 20, QFont.Weight.Light)
+        p.setFont(font_title)
+        fm_t = QFontMetricsF(font_title)
+        text = "NeSk"
+        tw   = fm_t.horizontalAdvance(text)
+        tx   = cx - tw / 2
+
+        # Basis
+        p.setPen(QPen(QColor(180, 205, 220, 130)))
+        p.drawText(QPointF(tx, ty), text)
+
+        # Shimmer
+        sh_prog = ((t * 0.55) % 1.9) - 0.4
+        sh_cx   = tx + sh_prog * (tw + 60) - 15
+        sh_w    = tw * 0.30
+        sh_grad = QLinearGradient(sh_cx - sh_w, ty - 28, sh_cx + sh_w, ty)
+        sh_grad.setColorAt(0.0, QColor(255, 255, 255, 0))
+        sh_grad.setColorAt(0.5, QColor(255, 255, 255, 210))
+        sh_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
+        p.setPen(QPen(QBrush(sh_grad), 0))
+        p.drawText(QPointF(tx, ty), text)
+
+        # Untertitel
+        font_sub = QFont("Segoe UI", 7)
+        p.setFont(font_sub)
+        fm_s = QFontMetricsF(font_sub)
+        sub  = "DRK  ·  Flughafen Köln / Bonn"
+        sw   = fm_s.horizontalAdvance(sub)
+        p.setPen(QPen(self._ACCENT))
+        p.drawText(QPointF(cx - sw / 2, ty + 17), sub)
+
+        p.end()
 from gui.dashboard        import DashboardWidget
 from gui.aufgaben_tag     import AufgabenTagWidget
 from gui.aufgaben         import AufgabenWidget
@@ -138,44 +259,46 @@ class MainWindow(QMainWindow):
         root.addWidget(self._build_content(), 1)
 
     def _build_sidebar(self) -> QWidget:
-        sidebar = QWidget()
-        sidebar.setFixedWidth(220)
-        sidebar.setStyleSheet(f"background-color: {FIORI_SIDEBAR_BG};")
+        # äußerer Container mit fester Breite und Sidebar-Farbe
+        outer = QWidget()
+        outer.setFixedWidth(220)
+        outer.setStyleSheet(f"background-color: {FIORI_SIDEBAR_BG};")
+        outer_layout = QVBoxLayout(outer)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
 
-        layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(8, 0, 8, 16)
-        layout.setSpacing(4)
+        # ScrollArea damit die Sidebar bei kleinem Fenster scrollbar ist
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setStyleSheet("""
+            QScrollArea { border: none; background: transparent; }
+            QScrollBar:vertical {
+                background: transparent; width: 4px; margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(255,255,255,0.25); border-radius: 2px; min-height: 20px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+        """)
 
-        # Logo-Bereich
-        logo_frame = QFrame()
-        logo_frame.setFixedHeight(180)
-        logo_layout = QVBoxLayout(logo_frame)
-        logo_layout.setContentsMargins(8, 8, 8, 8)
-        logo_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Logo randlos direkt in outer (außerhalb der ScrollArea)
+        logo_widget = _NeskLogoWidget()
+        outer_layout.addWidget(logo_widget)
 
-        logo_lbl = QLabel()
-        logo_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        _logo_path = str(Path(BASE_DIR) / "Daten" / "Logo" / "unnamed (1).jpg")
-        _pix = QPixmap(_logo_path)
-        if not _pix.isNull():
-            _pix = _pix.scaledToWidth(200, Qt.TransformationMode.SmoothTransformation)
-            if _pix.height() > 160:
-                _pix = _pix.scaledToHeight(160, Qt.TransformationMode.SmoothTransformation)
-            logo_lbl.setPixmap(_pix)
-        else:
-            logo_lbl.setText("NESK3")
-            logo_lbl.setFont(QFont("Arial", 18, QFont.Weight.Bold))
-            logo_lbl.setStyleSheet("color: white;")
-        logo_layout.addWidget(logo_lbl)
-
-        layout.addWidget(logo_frame)
-
-        # Trennlinie
+        # Trennlinie (ebenfalls außerhalb, direkt unter Logo)
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setStyleSheet("color: #4a6480;")
-        layout.addWidget(line)
-        layout.addSpacing(8)
+        outer_layout.addWidget(line)
+
+        sidebar = QWidget()
+        sidebar.setStyleSheet(f"background-color: {FIORI_SIDEBAR_BG};")
+
+        layout = QVBoxLayout(sidebar)
+        layout.setContentsMargins(8, 8, 8, 16)
+        layout.setSpacing(4)
 
         # Navigations-Buttons
         for (icon, label, idx), tooltip in zip(NAV_ITEMS, NAV_TOOLTIPS):
@@ -231,7 +354,10 @@ class MainWindow(QMainWindow):
         ver_lbl.setStyleSheet("color: #4a6480; font-size: 10px; padding: 0 8px;")
         layout.addWidget(ver_lbl)
 
-        return sidebar
+        # Scroll-Widget zusammenbauen und outer zurückgeben
+        scroll.setWidget(sidebar)
+        outer_layout.addWidget(scroll)
+        return outer
 
     def _build_content(self) -> QWidget:
         frame = QWidget()

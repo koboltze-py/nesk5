@@ -5,6 +5,41 @@ Format: `[Datum] Beschreibung – betroffene Dateien`
 
 ---
 
+## 20.03.2026 – v3.4.5
+
+### Sidebar – Animiertes Logo
+
+#### `gui/main_window.py`
+- **`_NeskLogoWidget`** (neue Klasse): ersetzt das statische Logo durch eine animierte Widget-Darstellung mit `QTimer` (30 ms / ~33 FPS)
+- **Teal-Ring** (vorwärts) + **Gold-Ring** (rückwärts) + **Shimmer-Effekt** auf dem NeSk-Schriftzug
+- **Hintergrundfarbe exakt `#354a5e`** (identisch zur Sidebar) – keine Farbdifferenz mehr, keine Zierstreifen
+- **Sidebar scrollbar**: `QScrollArea` (4 px, halbtransparent) damit Logo und Buttons auch bei kleinem Fenster sichtbar bleiben
+- Logo sitzt randlos (keine seitlichen Margins) im äußeren Container
+
+### Übergabe – HTML-E-Mail komplett überarbeitet
+
+#### `gui/uebergabe.py`
+- **HTML-E-Mail**: vollständiges Redesign mit DRK-rotem Header-Banner, farbigen Abschnitts-Boxen und HTML-Tabellen
+- **Info-Tabelle im Header**: Datum, Schicht, Ersteller, Anzahl Patienten – ersetzt den alten Plaintext-Header
+- **Fahrzeuge**: E-Mail zeigt jetzt nur KZ + Notiz-Spalte (Status entfernt)
+- **Neue Sektion „Patienten DRK Station“**: eigene Checkboxen im Dialog; Patienten mit Uhrzeiten wie Einzätze anzeigbar
+- **Bugfix**: `NameError pat_html` behoben – der Aufbau-Block fehlte im `_senden()`-Ablauf
+
+---
+
+## 14.03.2026 – v3.4.4
+
+### Dienstplan – Word-Export bereinigt
+
+#### `gui/dienstplan.py`
+- **Doppeltes Speichern entfernt**: Der zweite „Kopie speichern unter…“-Dialog nach dem Export wurde entfernt
+- **Speicherort-Button entfernt**: Der „Speicherort wählen…“-Button im Export-Dialog entfällt; der Datei-Speicherdialog öffnet sich jetzt direkt beim Klick auf „Exportieren“
+
+#### `functions/staerkemeldung_export.py`
+- Kleinere Anpassungen im Zuge des Export-Refactorings
+
+---
+
 ## 12.03.2026 – v3.4.3 / Version 1.1
 
 ### Übergabe – Verspätungen komplett überarbeitet

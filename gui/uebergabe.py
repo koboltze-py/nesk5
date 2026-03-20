@@ -1866,38 +1866,9 @@ class UebergabeWidget(QWidget):
         bereits_gesendet = [s for s in all_schaeden if s.get("gesendet")]
 
         # ── E-Mail Body aufbauen ──────────────────────────────────────────────
-        lines: list[str] = [
-            f"Übergabeprotokoll – {typ_label}",
-            "=" * 45,
-            f"Datum:      {datum}",
-            f"Schicht:    {beginn} – {ende}",
-            f"Ersteller:  {ersteller}" + (f"   |   Abzeichner: {abzeichner}" if abzeichner else ""),
-            f"Patienten:  {patienten}",
-            "",
-        ]
+        lines: list[str] = []
         if ereignisse:
             lines += ["Ereignisse / Vorfälle:", ereignisse, ""]
-
-        if alle_fz:
-            lines.append("Fahrzeuge:")
-            for fz in alle_fz:
-                fid   = fz["id"]
-                kz    = fz.get("kennzeichen", "?")
-                stat  = aktueller_fahrzeug_status(fid)
-                sk    = stat.get("status", "fahrbereit") if stat else "fahrbereit"
-                slbl  = _STAT_LABELS.get(sk, sk)
-                ne    = self._fahrzeug_notiz_widgets.get(fid)
-                notiz = ne.text().strip() if ne else ""
-                hint  = f" [{slbl}]" if sk != "fahrbereit" else ""
-                grund = f" – {stat['grund']}" if (sk != "fahrbereit" and stat and stat.get("grund")) else ""
-                lines.append(f"  • {kz}{hint}{grund}" + (f": {notiz}" if notiz else ""))
-            if nicht_fb:
-                lines.append("")
-                lines.append("⚠ ACHTUNG – Nicht fahrbereite Fahrzeuge:")
-                for kz, sk, grund in nicht_fb:
-                    lines.append(f"  • {kz}: {_STAT_LABELS.get(sk, sk)}"
-                                  + (f" ({grund})" if grund else ""))
-            lines.append("")
 
         handy_rows = [
             (nr.text().strip(), nt.text().strip())
@@ -2067,6 +2038,75 @@ class UebergabeWidget(QWidget):
         einz_scroll.setWidget(einz_inner)
         einsatz_vl.addWidget(einz_scroll)
         dlg_layout.addWidget(einsatz_frame)
+
+        # ── Patienten DRK Station ───────────────────────────────────────────────
+        try:
+            from gui.dienstliches import lade_patienten as _lade_patienten
+            _datum_dd_pat = self._f_datum.date().toString("dd.MM.yyyy")
+            _datum_qd_pat = self._f_datum.date()
+            # Datum in dd.MM.yyyy – passend zu Patienten-DB-Format
+            alle_patienten = [
+                p for p in _lade_patienten()
+                if p.get("datum", "") == _datum_dd_pat
+            ]
+            # Nachtdienst: auch Patienten des Folgetages bis 07:30
+            if self._aktueller_typ == "nachtdienst":
+                _folgetag_pat = _datum_qd_pat.addDays(1).toString("dd.MM.yyyy")
+                for _pp in _lade_patienten():
+                    if (_pp.get("datum", "") == _folgetag_pat
+                            and (_pp.get("uhrzeit", "") or "") <= "07:30"):
+                        alle_patienten.append(_pp)
+        except Exception:
+            alle_patienten = []
+
+        pat_frame = QFrame()
+        pat_frame.setStyleSheet(
+            "QFrame{border:1px solid #1565c0;border-radius:5px;background:#e3f2fd;}"
+        )
+        pat_vl = QVBoxLayout(pat_frame)
+        pat_vl.setContentsMargins(10, 8, 10, 8)
+        pat_vl.setSpacing(4)
+
+        pat_lbl = QLabel(
+            f"🏥 Patienten DRK Station ({_datum_dd_pat})  —  {len(alle_patienten)} Patient(en)"
+        )
+        pat_lbl.setStyleSheet("font-weight:bold;font-size:11px;border:none;")
+        pat_vl.addWidget(pat_lbl)
+
+        pat_scroll = _QSA()
+        pat_scroll.setWidgetResizable(True)
+        pat_scroll.setMaximumHeight(120)
+        pat_scroll.setStyleSheet("QScrollArea{border:none;}")
+        pat_inner = QWidget()
+        pat_inner.setStyleSheet("background:transparent;")
+        pat_inner_vl = QVBoxLayout(pat_inner)
+        pat_inner_vl.setContentsMargins(0, 0, 0, 0)
+        pat_inner_vl.setSpacing(2)
+
+        _pat_checkboxes: list[tuple] = []
+
+        for _pp in alle_patienten:
+            _puhr  = _pp.get("uhrzeit", "") or "—"
+            _pname = _pp.get("patient_name", "") or "—"
+            _ptyp  = _pp.get("patient_typ", "") or ""
+            _pbeschw = _pp.get("beschwerde_art", "") or "—"
+            _pdiag   = _pp.get("diagnose", "") or "—"
+            _pcb = QCheckBox(
+                f"🏥 {_puhr}  |  {_pname}  |  {_ptyp}  |  {_pbeschw}  |  {_pdiag}"
+            )
+            _pcb.setChecked(True)
+            _pcb.setStyleSheet("font-size:10px;")
+            pat_inner_vl.addWidget(_pcb)
+            _pat_checkboxes.append((_pcb, _pp))
+
+        if not alle_patienten:
+            _no_pat = QLabel("Keine Patienten für diesen Tag erfasst.")
+            _no_pat.setStyleSheet("color:#aaa;font-size:10px;border:none;padding:4px;")
+            pat_inner_vl.addWidget(_no_pat)
+
+        pat_scroll.setWidget(pat_inner)
+        pat_vl.addWidget(pat_scroll)
+        dlg_layout.addWidget(pat_frame)
 
         # ── PSA-Verstöße des Tages ────────────────────────────────────────────
         try:
@@ -2334,7 +2374,7 @@ class UebergabeWidget(QWidget):
         dlg_layout.addWidget(vsp_frame)
 
         # E-Mail-Body
-        body_lbl = QLabel("Nachricht:")
+        body_lbl = QLabel("Freitext / Notizen:")
         body_lbl.setStyleSheet("font-weight:bold;")
         dlg_layout.addWidget(body_lbl)
         body_edit = QTextEdit()
@@ -2458,7 +2498,6 @@ class UebergabeWidget(QWidget):
             checked   = [(cb, s) for cb, s in _schaden_checkboxes if cb.isChecked()]
             unchecked = [(cb, s) for cb, s in _schaden_checkboxes if not cb.isChecked()]
 
-            # Warnung wenn offene Schäden NICHT mitgesendet werden
             if unchecked:
                 answer = QMessageBox.warning(
                     dlg,
@@ -2471,22 +2510,231 @@ class UebergabeWidget(QWidget):
                 if answer != QMessageBox.StandardButton.Yes:
                     return
 
-            body_text = body_edit.toPlainText().strip()
+            # ── HTML-Hilfsfunktionen ──────────────────────────────────────────
+            _S = "font-family:Calibri,Arial,sans-serif;"
 
-            # Ausgewählte Schäden in den Body einbauen
-            if checked:
-                sch_lines = ["", "─" * 38, "🔧 Gemeldete Fahrzeugschäden:", "─" * 38]
-                for _, s in checked:
-                    icon = _SCHWERE_ICON.get(s.get("schwere", "gering"), "🟡")
-                    behoben_txt = " [behoben]" if s.get("behoben") else " [⚠ offen]"
-                    sch_lines.append(
-                        f"  {icon} {s.get('kennzeichen','?')}  |  {s.get('datum','')}  |  "
-                        f"{s.get('beschreibung','')}{behoben_txt}"
-                        + (f"\n       Kommentar: {s['kommentar']}" if s.get("kommentar") else "")
+            def _esc(t):
+                return str(t).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+
+            def _sec(icon, title, accent, content_html):
+                """Erzeugt einen formatierten Abschnitts-Block."""
+                return (
+                    f"<div style='margin-top:18px;border-left:4px solid {accent};"
+                    f"border-radius:0 6px 6px 0;overflow:hidden;'>"
+                    f"<div style='background:{accent};color:white;padding:7px 14px;"
+                    f"{_S}font-weight:bold;font-size:11pt;'>{icon} {title}</div>"
+                    f"<div style='padding:12px 14px;background:#fafafa;"
+                    f"border:1px solid #e0e0e0;border-top:none;border-radius:0 0 6px 0;'>"
+                    f"{content_html}</div></div>"
+                )
+
+            def _table_header(*cols, bg="#455a64"):
+                th = "".join(
+                    f"<th style='padding:6px 11px;text-align:left;border:1px solid #546e7a;"
+                    f"background:{bg};color:white;font-weight:bold;{_S}font-size:10pt;'>{c}</th>"
+                    for c in cols
+                )
+                return f"<table style='border-collapse:collapse;width:100%;'><tr>{th}</tr>"
+
+            def _tr(cells, bg="#ffffff"):
+                tds = "".join(
+                    f"<td style='padding:5px 11px;border:1px solid #ddd;background:{bg};"
+                    f"{_S}font-size:10pt;vertical-align:top;'>{c}</td>"
+                    for c in cells
+                )
+                return f"<tr>{tds}</tr>"
+
+            # ── Info-Block (Datum, Schicht, Ersteller, Patienten) ─────────────────
+            def _kv_row(k, v, _bg2="#fafafa"):
+                return (
+                    f"<tr>"
+                    f"<td style='padding:6px 16px;width:140px;font-weight:bold;color:#555;"
+                    f"{_S}font-size:10pt;border:1px solid #e0e0e0;background:#f0f0f0;"
+                    f"white-space:nowrap;'>{k}</td>"
+                    f"<td style='padding:6px 16px;{_S}font-size:10pt;"
+                    f"border:1px solid #e0e0e0;background:{_bg2};'>{v}</td>"
+                    f"</tr>"
+                )
+            _erst_txt = _esc(ersteller)
+            if abzeichner:
+                _erst_txt += f" &nbsp;│&nbsp; <span style='color:#555;'>Abzeichner: {_esc(abzeichner)}</span>"
+            info_html = (
+                f"<table style='border-collapse:collapse;width:100%;'>"
+                + _kv_row("📅 Datum", _esc(datum))
+                + _kv_row("🕒 Schicht", f"{_esc(beginn)} – {_esc(ende)}", "#eef4ff")
+                + _kv_row("👤 Ersteller", _erst_txt)
+                + _kv_row("🩺 Patienten", str(patienten), "#eef4ff")
+                + f"</table>"
+            )
+
+            # ── Freitext-Abschnitt (aus body_edit) ───────────────────────────
+            freitext_raw = body_edit.toPlainText().strip()
+            freitext_html = _esc(freitext_raw).replace("\n", "<br>") if freitext_raw else ""
+
+            # ── Fahrzeuge (HTML-Tabelle, nur KZ + Notiz) ──────────────────────
+            fzg_html = ""
+            if alle_fz:
+                fzg_html = _table_header("Fahrzeug", "Notiz", bg="#1a237e")
+                for _fi, _fz in enumerate(alle_fz):
+                    _fid    = _fz["id"]
+                    _kz     = _fz.get("kennzeichen", "?")
+                    _fne    = self._fahrzeug_notiz_widgets.get(_fid)
+                    _fnotiz = _fne.text().strip() if _fne else ""
+                    _fbg    = "#e8eaf6" if _fi % 2 == 0 else "#ffffff"
+                    fzg_html += (
+                        f"<tr>"
+                        f"<td style='padding:5px 11px;border:1px solid #ddd;background:{_fbg};"
+                        f"{_S}font-size:10pt;font-weight:bold;'>{_esc(_kz)}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #ddd;background:{_fbg};"
+                        f"{_S}font-size:10pt;'>"
+                        + (_esc(_fnotiz) if _fnotiz
+                           else "<span style='color:#bbb;'>&mdash;</span>")
+                        + f"</td></tr>"
                     )
-                body_text += "\n" + "\n".join(sch_lines)
+                fzg_html += "</table>"
 
-            # Stellungnahmen-Link einfügen
+            # ── Fahrzeugschäden ───────────────────────────────────────────────
+            schaden_html = ""
+            if checked:
+                _schwere_col = {"gering": "#f9a825", "mittel": "#e65100", "schwer": "#b71c1c"}
+                schaden_html = _table_header("Fzg.", "Datum", "Schwere", "Beschreibung", "Status", bg="#5d4037")
+                for _i, (_, s) in enumerate(checked):
+                    _bg   = "#fff8e1" if _i % 2 == 0 else "#ffffff"
+                    _sw   = s.get("schwere", "gering")
+                    _sw_c = _schwere_col.get(_sw, "#888")
+                    _status = "✅ behoben" if s.get("behoben") else "⚠️ offen"
+                    _st_c   = "#2e7d32" if s.get("behoben") else "#c62828"
+                    schaden_html += (
+                        f"<tr>"
+                        f"<td style='padding:5px 11px;border:1px solid #ddd;background:{_bg};{_S}font-size:10pt;font-weight:bold;'>{_esc(s.get('kennzeichen','?'))}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #ddd;background:{_bg};{_S}font-size:10pt;'>{_esc(s.get('datum',''))}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #ddd;background:{_bg};{_S}font-size:10pt;color:{_sw_c};font-weight:bold;'>{_esc(_sw)}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #ddd;background:{_bg};{_S}font-size:10pt;'>{_esc(s.get('beschreibung',''))}"
+                        + (f"<br><span style='color:#666;font-style:italic;font-size:9pt;'>💬 {_esc(s['kommentar'])}</span>" if s.get('kommentar') else "")
+                        + f"</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #ddd;background:{_bg};{_S}font-size:10pt;color:{_st_c};font-weight:bold;'>{_status}</td>"
+                        f"</tr>"
+                    )
+                schaden_html += "</table>"
+
+            # ── Verspätete Mitarbeiter ────────────────────────────────────────
+            _checked_vsp = [(_cb, _e) for _cb, _e in _vsp_checkboxes if _cb.isChecked()]
+            vsp_html = ""
+            if _checked_vsp:
+                vsp_html = _table_header("Mitarbeiter", "Datum", "Gefordert", "Angetreten", "Verzögerung", bg="#37474f")
+                for _i, (_, _e) in enumerate(_checked_vsp):
+                    _bg = "#e8eaf6" if _i % 2 == 0 else "#ffffff"
+                    _n, _s, _ist, _diff = _vsp_label(_e)
+                    _datum_str = _e.get("datum", "") if isinstance(_e, dict) else ""
+                    _diff_clean = _diff.strip() if _diff else "—"
+                    vsp_html += _tr([_esc(_n), _esc(_datum_str), _esc(_s), _esc(_ist),
+                                     f"<span style='color:#b71c1c;font-weight:bold;'>{_esc(_diff_clean)}</span>"], _bg)
+                vsp_html += "</table>"
+
+            # ── Patienten ─────────────────────────────────────────────────────
+            _checked_pat = [(_cb, _p) for _cb, _p in _pat_checkboxes if _cb.isChecked()]
+            pat_html = ""
+            if _checked_pat:
+                pat_html = _table_header(
+                    "Datum", "Uhrzeit", "Typ / Abt.", "Name / Alter",
+                    "Beschwerde", "Diagnose", "Maßnahmen", "MA", "Weitergeleitet",
+                    bg="#0a3d6b"
+                )
+                for _pi, (_, _pp) in enumerate(_checked_pat):
+                    _pbg     = "#e3f2fd" if _pi % 2 == 0 else "#ffffff"
+                    _pname   = _pp.get("patient_name", "") or "—"
+                    _palter  = _pp.get("patient_alter", 0) or 0
+                    _pname_a = f"{_esc(_pname)} ({_palter}J.)" if _palter else _esc(_pname)
+                    _ptyp    = _pp.get("patient_typ", "") or ""
+                    _pabt    = _pp.get("patient_abteilung", "") or ""
+                    _ptyp_a  = "/".join(filter(None, [_esc(_ptyp), _esc(_pabt)])) or "—"
+                    _pma1    = _pp.get("drk_ma1", "") or ""
+                    _pma2    = _pp.get("drk_ma2", "") or ""
+                    _pma_txt = _esc(", ".join(filter(None, [_pma1, _pma2])) or "—")
+                    _pwg     = _esc(_pp.get("weitergeleitet", "") or "—")
+                    _pdur    = _pp.get("behandlungsdauer", 0) or 0
+                    _puhr_txt = _esc(_pp.get("uhrzeit", "") or "—")
+                    if _pdur:
+                        _puhr_txt += f"&nbsp;<span style='color:#555;font-size:9pt;'>({_pdur}&nbsp;Min.)</span>"
+                    pat_html += (
+                        f"<tr>"
+                        f"<td style='padding:5px 11px;border:1px solid #bbdefb;background:{_pbg};{_S}font-size:10pt;'>{_esc(_pp.get('datum','') or '—')}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #bbdefb;background:{_pbg};{_S}font-size:10pt;'>{_puhr_txt}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #bbdefb;background:{_pbg};{_S}font-size:10pt;'>{_ptyp_a}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #bbdefb;background:{_pbg};{_S}font-size:10pt;font-weight:bold;'>{_pname_a}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #bbdefb;background:{_pbg};{_S}font-size:10pt;'>{_esc(_pp.get('beschwerde_art','') or '—')}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #bbdefb;background:{_pbg};{_S}font-size:10pt;'>{_esc(_pp.get('diagnose','') or '—')}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #bbdefb;background:{_pbg};{_S}font-size:10pt;'>{_esc(_pp.get('massnahmen','') or '—')}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #bbdefb;background:{_pbg};{_S}font-size:10pt;'>{_pma_txt}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #bbdefb;background:{_pbg};{_S}font-size:10pt;'>{_pwg}</td>"
+                        f"</tr>"
+                    )
+                    if _pp.get("bemerkung"):
+                        pat_html += (
+                            f"<tr><td colspan='9' style='padding:4px 14px 6px 28px;"
+                            f"border:1px solid #bbdefb;border-top:none;"
+                            f"border-left:4px solid #1565c0;"
+                            f"color:#0d47a1;font-style:italic;background:{_pbg};"
+                            f"{_S}font-size:9pt;'>"
+                            f"💬 <b>Bemerkung:</b> {_esc(_pp['bemerkung'])}</td></tr>"
+                        )
+                pat_html += f"</table><div style='color:#777;font-size:9pt;margin-top:4px;'>Gesamt: {len(_checked_pat)} Patient(en)</div>"
+
+            # ── Einsätze ──────────────────────────────────────────────────────
+            _checked_einz = [(_cb, _e) for _cb, _e in _einsatz_checkboxes if _cb.isChecked()]
+            einz_html = ""
+            if _checked_einz:
+                einz_html = _table_header("Datum", "Uhrzeit", "Stichwort", "Einsatzort", "Status", "DRK-Nr.", "Mitarbeiter", "Dauer", bg="#1b5e20")
+                for _i, (_, _e) in enumerate(_checked_einz):
+                    _bg      = "#f1f8e9" if _i % 2 == 0 else "#ffffff"
+                    _ang     = "✅ angenommen" if _e.get("angenommen") else "❌ abgelehnt"
+                    _ang_c   = "#2e7d32" if _e.get("angenommen") else "#c62828"
+                    _ma1     = _e.get("drk_ma1", "") or ""
+                    _ma2     = _e.get("drk_ma2", "") or ""
+                    _ma_txt  = _esc(", ".join(filter(None, [_ma1, _ma2])) or "—")
+                    _dur     = _e.get("einsatzdauer", 0) or 0
+                    _dur_txt = f"{_dur}&nbsp;Min." if _dur else "—"
+                    einz_html += (
+                        f"<tr>"
+                        f"<td style='padding:5px 11px;border:1px solid #ddd;background:{_bg};{_S}font-size:10pt;'>{_esc(_e.get('datum','') or '—')}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #ddd;background:{_bg};{_S}font-size:10pt;'>{_esc(_e.get('uhrzeit','') or '—')}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #ddd;background:{_bg};{_S}font-size:10pt;font-weight:bold;'>{_esc(_e.get('einsatzstichwort','') or '—')}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #ddd;background:{_bg};{_S}font-size:10pt;'>{_esc(_e.get('einsatzort','') or '—')}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #ddd;background:{_bg};{_S}font-size:10pt;color:{_ang_c};font-weight:bold;'>{_ang}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #ddd;background:{_bg};{_S}font-size:10pt;'>{_esc(_e.get('einsatznr_drk','') or '—')}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #ddd;background:{_bg};{_S}font-size:10pt;'>{_ma_txt}</td>"
+                        f"<td style='padding:5px 11px;border:1px solid #ddd;background:{_bg};{_S}font-size:10pt;'>{_dur_txt}</td>"
+                        f"</tr>"
+                    )
+                    if _e.get("bemerkung"):
+                        _bem_bg = "#e8f5e9" if _i % 2 == 0 else "#f9fbe7"
+                        einz_html += (
+                            f"<tr><td colspan='8' style='padding:5px 14px 7px 30px;"
+                            f"border:1px solid #c8e6c9;border-top:none;"
+                            f"border-left:4px solid #43a047;"
+                            f"color:#1b5e20;font-style:italic;background:{_bem_bg};"
+                            f"{_S}font-size:9pt;'>"
+                            f"💬 <b>Bemerkung:</b> {_esc(_e['bemerkung'])}</td></tr>"
+                        )
+                einz_html += f"</table><div style='color:#777;font-size:9pt;margin-top:5px;'>Gesamt: {len(_checked_einz)} Einsatz/Einsätze</div>"
+
+            # ── PSA-Verstöße ──────────────────────────────────────────────────
+            _checked_psa = [(_cb, _p) for _cb, _p in _psa_checkboxes if _cb.isChecked()]
+            psa_html = ""
+            if _checked_psa:
+                psa_html = _table_header("Mitarbeiter", "PSA-Typ", "Bemerkung", "Aufgenommen von", bg="#4a148c")
+                for _i, (_, _p) in enumerate(_checked_psa):
+                    _bg = "#f3e5f5" if _i % 2 == 0 else "#ffffff"
+                    psa_html += _tr([
+                        _esc(_p.get("mitarbeiter", "?")),
+                        _esc(_p.get("psa_typ", "?")),
+                        _esc(_p.get("bemerkung", "") or "—"),
+                        _esc(_p.get("aufgenommen_von", "") or "—"),
+                    ], _bg)
+                psa_html += "</table>"
+
+            # ── Stellungnahmen-Link ───────────────────────────────────────────
+            stell_html = ""
             if cb_stell_link.isChecked():
                 try:
                     from functions.stellungnahmen_html_export import html_pfad as _html_pfad
@@ -2494,97 +2742,65 @@ class UebergabeWidget(QWidget):
                     _fall_id = combo_stell_fall.currentData()
                     _full_url = f"{_html_url}#id-{_fall_id}" if _fall_id else _html_url
                     _link_text = "Stellungnahmen-Datenbank öffnen" if not _fall_id else f"Stellungnahme #{_fall_id} öffnen"
-                    _ref_line = f"<br><small style='color:#555'>Referenz: {combo_stell_fall.currentText()}</small>" if _fall_id else ""
-                    body_text += (
-                        "<br><hr style='border:none;border-top:1px solid #ccc;margin:12px 0'>"
-                        "<b>📋 Stellungnahmen-Datenbank:</b><br>"
-                        f"<a href='{_full_url}' style='color:#0563C1;text-decoration:underline;'>{_link_text}</a>"
-                        f"{_ref_line}"
+                    _ref = f"<div style='color:#555;font-size:9pt;margin-top:3px;'>Referenz: {_esc(combo_stell_fall.currentText())}</div>" if _fall_id else ""
+                    stell_html = (
+                        f"<a href='{_full_url}' style='color:#1565c0;font-weight:bold;"
+                        f"text-decoration:underline;{_S}font-size:10pt;'>📋 {_link_text}</a>{_ref}"
                     )
                 except Exception:
                     pass
 
-            # Verspätete Mitarbeiter in Body einbauen
-            _checked_vsp = [(_cb, _e) for _cb, _e in _vsp_checkboxes if _cb.isChecked()]
-            if _checked_vsp:
-                _vsp_lines = ["", "─" * 38, "🕐 Verspätete Mitarbeiter:", "─" * 38]
-                for _, _e in _checked_vsp:
-                    _n, _s, _i, _d = _vsp_label(_e)
-                    _datum_str = _e.get("datum", "") if isinstance(_e, dict) else ""
-                    _datum_txt = f"  📅 {_datum_str}" if _datum_str else ""
-                    _vsp_lines.append(f"  • {_n}{_datum_txt}  –  Gefordert: {_s}  Tatsächlich: {_i}{_d}")
-                body_text += "\n" + "\n".join(_vsp_lines)
+            # ── Gesamt-HTML zusammenstellen ───────────────────────────────────
+            html_parts = []
 
-            # Einsätze in Body einbauen
-            _checked_einz = [(_cb, _e) for _cb, _e in _einsatz_checkboxes if _cb.isChecked()]
-            if _checked_einz:
-                _td = "style='padding:5px 10px;border:1px solid #c8e6c9;font-size:10pt;'"
-                _th = "style='padding:5px 10px;border:1px solid #81c784;background:#e8f5e9;font-weight:bold;font-size:10pt;'"
-                _einz_html = (
-                    "<br><hr style='border:none;border-top:2px solid #5a9060;margin:14px 0'>"
-                    "<b style='font-size:11pt;'>🚑 Einsätze</b><br><br>"
-                    f"<table style='border-collapse:collapse;font-family:Calibri,Arial,sans-serif;'>"
-                    f"<tr>"
-                    f"<th {_th}>Datum</th>"
-                    f"<th {_th}>Uhrzeit</th>"
-                    f"<th {_th}>Stichwort</th>"
-                    f"<th {_th}>Einsatzort</th>"
-                    f"<th {_th}>Status</th>"
-                    f"<th {_th}>DRK-Nr.</th>"
-                    f"<th {_th}>Mitarbeiter</th>"
-                    f"<th {_th}>Dauer</th>"
-                    f"</tr>"
-                )
-                for _i, (_, _e) in enumerate(_checked_einz):
-                    _ang     = "✅ angenommen" if _e.get("angenommen") else "❌ abgelehnt"
-                    _ang_col = "#2e7d32" if _e.get("angenommen") else "#c62828"
-                    _dat     = _e.get("datum", "") or "—"
-                    _uhr     = _e.get("uhrzeit", "") or "—"
-                    _stw     = _e.get("einsatzstichwort", "") or "—"
-                    _ort     = _e.get("einsatzort", "") or "—"
-                    _nr      = _e.get("einsatznr_drk", "") or "—"
-                    _dur     = _e.get("einsatzdauer", 0) or 0
-                    _ma1     = _e.get("drk_ma1", "") or ""
-                    _ma2     = _e.get("drk_ma2", "") or ""
-                    _ma_txt  = ", ".join(filter(None, [_ma1, _ma2])) or "—"
-                    _dur_txt = f"{_dur}&nbsp;Min." if _dur else "—"
-                    _bg      = "background:#ffffff" if _i % 2 == 0 else "background:#f1f8e9"
-                    _td_bg   = f"style='padding:5px 10px;border:1px solid #c8e6c9;font-size:10pt;{_bg}'"
-                    _einz_html += (
-                        f"<tr>"
-                        f"<td {_td_bg}>{_dat}</td>"
-                        f"<td {_td_bg}>{_uhr}</td>"
-                        f"<td {_td_bg}>{_stw}</td>"
-                        f"<td {_td_bg}>{_ort}</td>"
-                        f"<td style='padding:5px 10px;border:1px solid #c8e6c9;font-size:10pt;"
-                        f"color:{_ang_col};font-weight:bold;{_bg}'>{_ang}</td>"
-                        f"<td {_td_bg}>{_nr}</td>"
-                        f"<td {_td_bg}>{_ma_txt}</td>"
-                        f"<td {_td_bg}>{_dur_txt}</td>"
-                        f"</tr>"
-                    )
-                    if _e.get("bemerkung"):
-                        _einz_html += (
-                            f"<tr><td colspan='8' style='padding:3px 10px 6px 24px;"
-                            f"border:1px solid #c8e6c9;color:#555;font-style:italic;{_bg}'>"
-                            f"💬 {_e['bemerkung']}</td></tr>"
-                        )
-                _einz_html += (
-                    f"</table>"
-                    f"<br><small style='color:#888;'>Gesamt: {len(_checked_einz)} Einsatz/Einsätze</small>"
-                )
-                body_text += _einz_html
+            # Graukopf-Banner
+            html_parts.append(
+                f"<div style='background:#c8102e;color:white;padding:14px 20px;"
+                f"border-radius:6px 6px 0 0;{_S}'>"
+                f"<div style='font-size:15pt;font-weight:bold;margin:0;'>📋 Übergabeprotokoll – {_esc(typ_label)}</div>"
+                f"<div style='font-size:9pt;opacity:0.85;margin-top:2px;'>"
+                f"DRK Erste-Hilfe-Station · Flughafen Köln/Bonn</div>"
+                f"</div>"
+            )
 
-            # PSA-Verstöße in Body einbauen
-            _checked_psa = [(_cb, _p) for _cb, _p in _psa_checkboxes if _cb.isChecked()]
-            if _checked_psa:
-                _psa_lines = ["", "─" * 38, "🦺 PSA-Verstöße:", "─" * 38]
-                for _, _p in _checked_psa:
-                    _psa_lines.append(
-                        f"  • {_p.get('mitarbeiter','?')}  |  {_p.get('psa_typ','?')}  |  "
-                        f"{_p.get('bemerkung','') or '—'}  (aufgen.: {_p.get('aufgenommen_von','') or '—'})"
-                    )
-                body_text += "\n" + "\n".join(_psa_lines)
+            # Info-Tabelle (Datum, Schicht, Ersteller, Patienten)
+            html_parts.append(
+                f"<div style='border:1px solid #e0e0e0;border-top:none;background:#ffffff;"
+                f"border-radius:0 0 4px 0;'>{info_html}</div>"
+            )
+
+            # Freitext (Ereignisse, Handys, Notiz) – nur wenn vorhanden
+            if freitext_html:
+                html_parts.append(
+                    _sec("📝", "Zusätzliche Notizen", "#546e7a", freitext_html)
+                )
+
+            # Fahrzeuge als HTML-Tabelle
+            if fzg_html:
+                html_parts.append(_sec("🚗", "Fahrzeuge", "#1a237e", fzg_html))
+
+            # Dynamische Sektionen
+            if schaden_html:
+                html_parts.append(_sec("🔧", "Fahrzeugschäden", "#6d4c41", schaden_html))
+            if pat_html:
+                html_parts.append(_sec("🏥", f"Patienten DRK Station ({len(_checked_pat)})", "#0d47a1", pat_html))
+            if vsp_html:
+                html_parts.append(_sec("🕐", "Verspätete Mitarbeiter", "#455a64", vsp_html))
+            if einz_html:
+                html_parts.append(_sec("🚑", f"Einsätze ({len(_checked_einz)})", "#2e7d32", einz_html))
+            if psa_html:
+                html_parts.append(_sec("🦺", "PSA-Verstöße", "#6a1b9a", psa_html))
+            if stell_html:
+                html_parts.append(_sec("📋", "Stellungnahmen", "#0d47a1", stell_html))
+
+            # Footer
+            html_parts.append(
+                f"<div style='margin-top:18px;padding:10px 14px;border-top:2px solid #e0e0e0;"
+                f"color:#999;{_S}font-size:9pt;'>"
+                f"Diese E-Mail wurde automatisch durch Nesk3 erstellt.</div>"
+            )
+
+            full_html = "".join(html_parts)
 
             to_val = an_edit.text().strip()
             cc_val = cc_edit.text().strip()
@@ -2607,11 +2823,12 @@ class UebergabeWidget(QWidget):
                                 atts.append(_sn["pfad_extern"])
                     except Exception:
                         pass
+
             try:
                 create_outlook_draft(
                     to=to_val,
                     subject=subj,
-                    body_text=body_text,
+                    body_text=full_html,
                     cc=cc_val,
                     attachments=atts if atts else None,
                 )
