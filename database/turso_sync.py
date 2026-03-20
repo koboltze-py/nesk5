@@ -216,6 +216,103 @@ def _adapt_schema_for_turso(original_sql: str, turso_table: str) -> str:
     return sql
 
 
+# Tabellen, die bekanntermaßen mit falschen FK-Constraints in Turso erstellt wurden.
+# Diese werden beim Start einmalig repariert (DROP + neue Schema + Daten re-uploaden).
+_FK_REPAIR_TABLES: list[tuple[str, str]] = [
+    ("nesk3.db", "uebergabe_handy_eintraege"),
+    ("nesk3.db", "uebergabe_fahrzeug_notizen"),
+    ("nesk3.db", "uebergabe_verspaetungen"),
+]
+
+# Flag: Reparatur schon in dieser App-Session durchgeführt?
+_fk_repair_done: bool = False
+
+
+def _repair_fk_tables() -> None:
+    """
+    Erkennt und repariert Turso-Tabellen, die mit falschen REFERENCES erstellt wurden.
+    Schema: DROP (mit Datensicherung) → CREATE (sauber, ohne FK) → INSERT (Daten zurück).
+    Wird einmalig pro App-Start aufgerufen.
+    """
+    global _fk_repair_done
+    if _fk_repair_done:
+        return
+    _fk_repair_done = True
+
+    for db_file, local_table in _FK_REPAIR_TABLES:
+        turso_table = TABLE_MAP.get((db_file, local_table))
+        if not turso_table:
+            continue
+
+        # Prüfen ob die Tabelle in Turso ein "no such table"-Problem hat
+        # indem wir ein harmloses SELECT absetzen
+        try:
+            _turso_request(f'SELECT 1 FROM "{turso_table}" LIMIT 1')
+            # Kein Fehler → Tabelle existiert. Prüfen ob FK-Constraint vorhanden ist.
+            # Wir versuchen ein PRAGMA-ähnliches Dummy INSERT um den FK-Fehler zu triggern.
+            # Einfacher: wir prüfen ob ein INSERT scheitert wegen "no such table".
+            # Stattdessen: wir lesen das Schema aus Turso sqlite_master.
+            schema_result = _turso_request(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                [turso_table]
+            )
+            rows = schema_result["results"][0]["response"]["result"]["rows"]
+            if not rows:
+                continue
+            existing_sql = rows[0][0]["value"] if rows[0][0]["type"] != "null" else ""
+            # Wenn der existierende Schema-Text noch REFERENCES enthält → reparieren
+            import re as _re
+            if not _re.search(r'\bREFERENCES\b', existing_sql, _re.IGNORECASE):
+                continue  # Schema ist sauber → nichts zu tun
+        except Exception:
+            continue  # Verbindungsfehler → überspringen
+
+        # Reparieren: Daten sichern, DROP, neue Schema, Daten zurück
+        try:
+            # 1. Alle Daten aus Turso holen
+            data_result = _turso_request(f'SELECT * FROM "{turso_table}"')
+            turso_rows_raw = data_result["results"][0]["response"]["result"]
+            col_names = [c["name"] for c in turso_rows_raw["cols"]]
+            turso_rows = []
+            for r in turso_rows_raw["rows"]:
+                turso_rows.append({
+                    col_names[i]: (r[i]["value"] if r[i]["type"] != "null" else None)
+                    for i in range(len(col_names))
+                })
+
+            # 2. Neue Schema ohne FK erzeugen
+            db_path = _local_db_path(db_file)
+            schema_sql = _get_local_schema(db_path, local_table)
+            if not schema_sql:
+                continue
+            adapted = _adapt_schema_for_turso(schema_sql, turso_table)
+
+            # 3. DROP + CREATE + INSERT in einem Batch
+            statements: list = [
+                {"sql": f'DROP TABLE IF EXISTS "{turso_table}"'},
+                {"sql": adapted},
+            ]
+            for row in turso_rows:
+                cols = list(row.keys())
+                col_str = ", ".join([f'"{c}"' for c in cols])
+                placeholders = ", ".join(["?" for _ in cols])
+                args = [
+                    {"type": "text", "value": str(v)} if v is not None else {"type": "null"}
+                    for v in row.values()
+                ]
+                statements.append({
+                    "sql": f'INSERT INTO "{turso_table}" ({col_str}) VALUES ({placeholders})',
+                    "args": args,
+                })
+
+            _turso_execute_batch(statements)
+            print(f"[Turso] FK-Reparatur: {turso_table} neu erstellt"
+                  f" ({len(turso_rows)} Datensätze wiederhergestellt)")
+
+        except Exception as e:
+            print(f"[Turso] FK-Reparatur fehlgeschlagen {turso_table}: {e}")
+
+
 def ensure_turso_schema() -> None:
     """Erstellt alle fehlenden Tabellen in Turso basierend auf den lokalen Schemas."""
     cfg = _get_cfg()
@@ -255,6 +352,12 @@ def ensure_turso_schema() -> None:
             print(f"[Turso] Schema eingerichtet ({len(statements)} Tabellen)")
         except Exception as e:
             print(f"[Turso] Schema-Fehler: {e}")
+
+    # FK-Tabellen reparieren (einmalig pro Session)
+    try:
+        _repair_fk_tables()
+    except Exception as e:
+        print(f"[Turso] FK-Reparatur-Fehler: {e}")
 
 
 def _local_db_path(db_filename: str) -> str:
