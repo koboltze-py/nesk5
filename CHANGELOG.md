@@ -5,6 +5,34 @@ Format: `[Datum] Beschreibung – betroffene Dateien`
 
 ---
 
+## 21.03.2026 – v3.5.0
+
+### Passagieranfragen – Neues Sidebar-Modul
+
+#### `gui/passagieranfragen.py` (neu)
+- **Neues Widget** „✉️ Passagieranfragen" als eigene Sidebar-Seite (Index 16)
+- **Outlook-Posteingang direkt in der App**: Button „📬 Posteingang" öffnet Dialog mit den letzten 75 E-Mails (Datum, Von, Betreff), Doppelklick lädt E-Mail ins Eingabefeld
+- **Automatische Datenextraktion** aus dem E-Mail-Text: Name (5-Stufen-Strategie: Vorname/Nachname-Labels, Anrede-Block, Fließtext, Von-Header), E-Mail-Adresse, Flugnummer, Datum, Rückflug
+- **Absender-E-Mail direkt aus Outlook** (`SenderEmailAddress`-Eigenschaft) – nicht aus dem Body-Text; Exchange-interne Adressen (EX:/O=) werden automatisch übersprungen
+- **Anrede-Dropdown** (–, Herr, Frau) – wird aus E-Mail extrahiert oder manuell gesetzt
+- **Personalisierte Begrüßung**: „Sehr geehrter Herr Müller," / „Sehr geehrte Frau Müller,"
+- **Bezug-Zeile** nach der Anrede: „Bezug: Flug EW583, 19.03.2026"
+- **4 Antwort-Szenarien** (einheitliche Dunkelblau-Buttons `#1e5799`):
+  - Szenario 1: Alle Angaben vorhanden – Eintragungsbestätigung + Hinweise
+  - Szenario 2: Fehlende Informationen – Anforderung der 4 Pflichtfelder
+  - Szenario 3: Abholung am Parkplatz
+  - Szenario 4: Allgemeine PRM-Service-Info (5 Schritte)
+- **„+ Flugdaten anfordern"-Checkbox**: fügt bei allen Szenarien Bullet-Liste der fehlenden Daten vor der Signatur ein
+- **Outlook-Entwurf via win32com** (`create_outlook_draft()`): DRK-Logo als CID-Inline-Bild, Outlook-Standardsignatur automatisch angehängt
+- **Betreff** wird automatisch zusammengestellt: „PRM-Service – Flughafen Köln/Bonn | Name | Flug EW583 | 19.03.2026"
+
+#### `gui/main_window.py`
+- Import `PassagieranfragenWidget` ergänzt
+- `NAV_ITEMS` Index 16: `("✉️", "Passagieranfragen", 16)`
+- Seite im Stack und Refresh-Map registriert
+
+---
+
 ## 20.03.2026 – v3.4.5
 
 ### Sidebar – Animiertes Logo

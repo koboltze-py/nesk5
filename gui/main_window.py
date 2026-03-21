@@ -154,6 +154,8 @@ from gui.dienstliches           import DienstlichesWidget
 from gui.telefonnummern         import TelefonnummernWidget
 from gui.call_transcription     import CallTranscriptionWidget
 from gui.backup_widget          import BackupWidget
+from gui.beschwerden            import BeschwerdenWidget
+from gui.passagieranfragen      import PassagieranfragenWidget
 
 
 NAV_ITEMS = [
@@ -172,6 +174,8 @@ NAV_ITEMS = [
     ("♿", "Call Transcription", 12),
     ("💾", "Backup",          13),
     ("⚙️",  "Einstellungen",  14),
+    ("📣",  "Beschwerden",    15),
+    ("✉️",  "Passagieranfragen", 16),
 ]
 
 NAV_TOOLTIPS = [
@@ -190,6 +194,8 @@ NAV_TOOLTIPS = [
     "Anrufprotokoll: Anrufinhalte mit Textbausteinen schnell erfassen und verwalten",
     "Datensicherung erstellen und wiederherstellen",
     "App-Einstellungen, Pfade und E-Mobby-Fahrerliste",
+    "Beschwerden erfassen, verwalten und nachverfolgen",
+    "Passagieranfragen verarbeiten, Daten extrahieren und Antworten per Outlook versenden",
 ]
 
 
@@ -394,6 +400,8 @@ class MainWindow(QMainWindow):
         self._call_transcription_page = CallTranscriptionWidget()
         self._backup_page        = BackupWidget()
         self._settings_page      = EinstellungenWidget()
+        self._beschwerden_page        = BeschwerdenWidget()
+        self._passagieranfragen_page = PassagieranfragenWidget()
 
         for page in [self._dashboard_page, self._mitarbeiter_page,
                      self._dienstliches_page,
@@ -403,7 +411,9 @@ class MainWindow(QMainWindow):
                      self._ausdrucke_page, self._krankmeldungen_page,
                      self._telefonnummern_page,
                      self._call_transcription_page,
-                     self._backup_page, self._settings_page]:
+                     self._backup_page, self._settings_page,
+                     self._beschwerden_page,
+                     self._passagieranfragen_page]:
             self._stack.addWidget(page)
 
         layout.addWidget(self._stack)
@@ -498,6 +508,8 @@ class MainWindow(QMainWindow):
             10: self._krankmeldungen_page.refresh,
             11: self._telefonnummern_page.refresh,
             12: self._call_transcription_page.refresh,
+            15: self._beschwerden_page._load,
+            16: self._passagieranfragen_page.refresh,
         }
         if index in page_map:
             QTimer.singleShot(0, page_map[index])

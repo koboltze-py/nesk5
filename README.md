@@ -3,8 +3,15 @@
 **DRK Flughafen Köln – Erste-Hilfe-Station**  
 Dienstplan-Verwaltung, Stärkemeldung und Mitarbeiterverwaltung
 
-**Version:** v3.4.5 (20.03.2026)  
-**Module:** Dashboard · Mitarbeiter · Dienstliches · Aufgaben Tag/Nacht · Dienstplan · Übergabe · Fahrzeuge · Code 19 · Ma. Ausdrucke · Krankmeldungen · **Telefonnummern** · Backup · Einstellungen · Hilfe
+**Version:** v3.5.0 (21.03.2026)  
+**Module:** Dashboard · Mitarbeiter · Dienstliches · Aufgaben Tag/Nacht · Dienstplan · Übergabe · Fahrzeuge · Code 19 · Ma. Ausdrucke · Krankmeldungen · **Telefonnummern** · Backup · Einstellungen · Hilfe · **Passagieranfragen**
+
+### Neu in v3.5.0
+- **Passagieranfragen** (neues Sidebar-Modul): Outlook-Posteingang direkt in der App lesen, E-Mail auswählen → Daten automatisch extrahieren (Name inkl. Anrede, E-Mail direkt aus Outlook, Flugnummer, Datum)
+- **Personalisierte Antworten**: Anrede „Sehr geehrter Herr / Sehr geehrte Frau" + Bezug-Zeile mit Flugdaten werden automatisch eingefügt
+- **4 Szenarien**: Alle Angaben vorhanden / Fehlende Daten / Parkplatz-Abholung / PRM-Info
+- **„+ Flugdaten anfordern"-Checkbox**: fügt bei jedem Szenario Bullet-Liste der fehlenden Felder ein
+- **Outlook-Entwurf** via win32com mit DRK-Logo und automatischer Signatur
 
 ### Neu in v3.4.5
 - **Sidebar – Animiertes Logo**: `_NeskLogoWidget` mit rotierenden Ringen, Shimmer-Effekt und genau passender Sidebar-Farbe (`#354a5e`), keine Zierstreifen
