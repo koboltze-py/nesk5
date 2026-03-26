@@ -35,7 +35,7 @@ KATEGORIEN = [
     "Dienstanweisungen",
     "PSA",
     "Verspätung",
-    "Sonstiges",
+    "Schulungen",
 ]
 
 

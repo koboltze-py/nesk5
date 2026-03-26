@@ -69,6 +69,15 @@ from functions.psa_db import (
     lade_psa_eintraege,
     verfuegbare_jahre as pdb_jahre,
 )
+from functions.schulungen_db import (
+    schulung_speichern,
+    schulung_aktualisieren,
+    schulung_loeschen as sdb_loeschen,
+    lade_schulungen,
+    lade_jahre as sdb_jahre,
+    SCHULUNGSARTEN,
+    STATUS_OPTIONEN,
+)
 
 
 # ── Hilfsstile ────────────────────────────────────────────────────────────────
@@ -1004,6 +1013,147 @@ class _PsaDialog(QDialog):
         }
 
 
+class _SchulungDialog(QDialog):
+    """Dialog zum Erfassen / Bearbeiten einer Schulung."""
+
+    def __init__(self, daten: dict | None = None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("🎓 Schulung erfassen")
+        self.setMinimumWidth(480)
+        self.resize(520, 480)
+        self._build_ui()
+        if daten:
+            self._prefill(daten)
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 16)
+
+        title = QLabel("🎓 Schulung erfassen")
+        title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
+        title.setStyleSheet("color:#2e7d32;")
+        layout.addWidget(title)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        self._ma_combo = QComboBox()
+        self._ma_combo.setEditable(True)
+        self._ma_combo.setMinimumWidth(260)
+        self._ma_combo.lineEdit().setPlaceholderText("Name eingeben …")
+        try:
+            from functions.mitarbeiter_functions import lade_mitarbeiter_namen
+            for name in lade_mitarbeiter_namen():
+                self._ma_combo.addItem(name)
+        except Exception:
+            pass
+        form.addRow("Mitarbeiter *:", self._ma_combo)
+
+        self._schulungsart = QComboBox()
+        self._schulungsart.setEditable(True)
+        self._schulungsart.addItems(SCHULUNGSARTEN)
+        self._schulungsart.lineEdit().setPlaceholderText("Auswählen oder eingeben …")
+        form.addRow("Schulungsart *:", self._schulungsart)
+
+        self._datum = QDateEdit(QDate.currentDate())
+        self._datum.setCalendarPopup(True)
+        self._datum.setDisplayFormat("dd.MM.yyyy")
+        form.addRow("Datum *:", self._datum)
+
+        self._gueltig_bis = QDateEdit()
+        self._gueltig_bis.setCalendarPopup(True)
+        self._gueltig_bis.setDisplayFormat("dd.MM.yyyy")
+        self._gueltig_bis.setSpecialValueText("—  (kein Ablaufdatum)")
+        self._gueltig_bis.setMinimumDate(QDate(2000, 1, 1))
+        self._gueltig_bis.setDate(QDate(2000, 1, 1))
+        form.addRow("Gültig bis:", self._gueltig_bis)
+
+        self._status = QComboBox()
+        self._status.addItems(STATUS_OPTIONEN)
+        form.addRow("Status *:", self._status)
+
+        self._bemerkung = QTextEdit()
+        self._bemerkung.setPlaceholderText("Weitere Informationen zur Schulung …")
+        self._bemerkung.setMinimumHeight(70)
+        self._bemerkung.setMaximumHeight(110)
+        form.addRow("Bemerkung:", self._bemerkung)
+
+        self._aufgenommen_von = QLineEdit()
+        self._aufgenommen_von.setPlaceholderText("Name Schichtleiter/in")
+        form.addRow("Aufgenommen von:", self._aufgenommen_von)
+
+        layout.addLayout(form)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_speichern = _btn("💾  Speichern", "#2e7d32", "#1b5e20")
+        btn_speichern.clicked.connect(self._on_accept)
+        btn_abbrechen = _btn_light("Abbrechen")
+        btn_abbrechen.clicked.connect(self.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_speichern)
+        btn_row.addWidget(btn_abbrechen)
+        layout.addLayout(btn_row)
+
+    def _on_accept(self):
+        if not self._ma_combo.currentText().strip():
+            QMessageBox.warning(self, "Pflichtfeld", "Bitte Mitarbeiter angeben.")
+            return
+        if not self._schulungsart.currentText().strip():
+            QMessageBox.warning(self, "Pflichtfeld", "Bitte Schulungsart angeben.")
+            return
+        self.accept()
+
+    def _prefill(self, daten: dict):
+        if daten.get("mitarbeiter"):
+            idx = self._ma_combo.findText(daten["mitarbeiter"])
+            if idx >= 0:
+                self._ma_combo.setCurrentIndex(idx)
+            else:
+                self._ma_combo.setCurrentText(daten["mitarbeiter"])
+        if daten.get("schulungsart"):
+            idx = self._schulungsart.findText(daten["schulungsart"])
+            if idx >= 0:
+                self._schulungsart.setCurrentIndex(idx)
+            else:
+                self._schulungsart.setCurrentText(daten["schulungsart"])
+        if daten.get("datum"):
+            parts = daten["datum"].split(".")
+            if len(parts) == 3:
+                self._datum.setDate(QDate(int(parts[2]), int(parts[1]), int(parts[0])))
+        if daten.get("gueltig_bis"):
+            parts = daten["gueltig_bis"].split(".")
+            if len(parts) == 3:
+                self._gueltig_bis.setDate(QDate(int(parts[2]), int(parts[1]), int(parts[0])))
+        if daten.get("status"):
+            idx = self._status.findText(daten["status"])
+            if idx >= 0:
+                self._status.setCurrentIndex(idx)
+        if daten.get("bemerkung"):
+            self._bemerkung.setPlainText(daten["bemerkung"])
+        if daten.get("aufgenommen_von"):
+            self._aufgenommen_von.setText(daten["aufgenommen_von"])
+
+    def get_daten(self) -> dict:
+        gueltig_bis = self._gueltig_bis.date()
+        gueltig_bis_str = (
+            gueltig_bis.toString("dd.MM.yyyy")
+            if gueltig_bis > QDate(2000, 1, 1)
+            else ""
+        )
+        return {
+            "mitarbeiter":     self._ma_combo.currentText().strip(),
+            "schulungsart":    self._schulungsart.currentText().strip(),
+            "datum":           self._datum.date().toString("dd.MM.yyyy"),
+            "gueltig_bis":     gueltig_bis_str,
+            "status":          self._status.currentText(),
+            "bemerkung":       self._bemerkung.toPlainText().strip(),
+            "aufgenommen_von": self._aufgenommen_von.text().strip(),
+        }
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Haupt-Widget
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1191,6 +1341,12 @@ class MitarbeiterDokumenteWidget(QWidget):
         self._btn_word_druck.clicked.connect(self._dienstanweisung_word_druck)
         btn_row.addWidget(self._btn_word_druck)
 
+        self._btn_schulung = _btn("🎓  Schulung erfassen", "#2e7d32", "#1b5e20")
+        self._btn_schulung.setToolTip("Neue Schulung/Zertifizierung für einen Mitarbeiter erfassen")
+        self._btn_schulung.setVisible(False)
+        self._btn_schulung.clicked.connect(self._schulung_erfassen)
+        btn_row.addWidget(self._btn_schulung)
+
         btn_row.addStretch()
         outer.addLayout(btn_row)
 
@@ -1358,6 +1514,10 @@ class MitarbeiterDokumenteWidget(QWidget):
         )
         self._tabs.addTab(self._krankmeldungen_browser, "🤒  Krankmeldungen")
         self._tabs.setTabVisible(5, False)
+
+        # ── TAB 6: Schulungen ─────────────────────────────────────────────────
+        self._tabs.addTab(self._build_schulungen_tab(), "🎓  Schulungen")
+        self._tabs.setTabVisible(6, False)
 
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
@@ -1839,6 +1999,239 @@ class MitarbeiterDokumenteWidget(QWidget):
             except Exception as exc:
                 QMessageBox.critical(self, "Fehler", str(exc))
 
+    # ── Schulungen: Tab aufbauen ──────────────────────────────────────────────
+
+    def _build_schulungen_tab(self) -> QWidget:
+        """TAB 6: Schulungen – Filterzeile, Tabelle, Aktionen."""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(8)
+
+        filter_frame = QFrame()
+        filter_frame.setStyleSheet(
+            "QFrame{background:#e8f5e9;border:1px solid #a5d6a7;"
+            "border-radius:4px;padding:4px;}"
+        )
+        fl = QHBoxLayout(filter_frame)
+        fl.setContentsMargins(8, 6, 8, 6)
+        fl.setSpacing(10)
+
+        fl.addWidget(QLabel("Jahr:"))
+        self._schulung_combo_jahr = QComboBox()
+        self._schulung_combo_jahr.setFixedWidth(80)
+        self._schulung_combo_jahr.addItem("Alle", None)
+        self._schulung_combo_jahr.currentIndexChanged.connect(self._schulung_filter_changed)
+        fl.addWidget(self._schulung_combo_jahr)
+
+        fl.addWidget(QLabel("Suche:"))
+        self._schulung_suche = QLineEdit()
+        self._schulung_suche.setPlaceholderText("Name, Schulungsart, Bemerkung …")
+        self._schulung_suche.setMinimumWidth(200)
+        self._schulung_suche.textChanged.connect(self._schulung_filter_changed)
+        fl.addWidget(self._schulung_suche, 1)
+
+        btn_reset = _btn_light("✖ Zurücksetzen")
+        btn_reset.setFixedHeight(28)
+        btn_reset.clicked.connect(self._schulung_filter_reset)
+        fl.addWidget(btn_reset)
+
+        layout.addWidget(filter_frame)
+
+        self._schulung_table = QTableWidget()
+        self._schulung_table.setColumnCount(7)
+        self._schulung_table.setHorizontalHeaderLabels([
+            "Datum", "Mitarbeiter", "Schulungsart", "Gültig bis", "Status", "Bemerkung", "ID",
+        ])
+        hh = self._schulung_table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        self._schulung_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._schulung_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._schulung_table.setAlternatingRowColors(True)
+        self._schulung_table.setStyleSheet("QTableWidget{border:1px solid #ddd;font-size:12px;}")
+        self._schulung_table.verticalHeader().setVisible(False)
+        self._schulung_table.itemSelectionChanged.connect(self._schulung_auswahl_geaendert)
+        self._schulung_table.itemDoubleClicked.connect(lambda _: self._schulung_bearbeiten())
+        layout.addWidget(self._schulung_table, 1)
+
+        sbtn_row = QHBoxLayout()
+        sbtn_row.setSpacing(8)
+
+        self._schulung_btn_bearbeiten = _btn_light("✏  Bearbeiten")
+        self._schulung_btn_bearbeiten.setEnabled(False)
+        self._schulung_btn_bearbeiten.setToolTip("Eintrag bearbeiten")
+        self._schulung_btn_bearbeiten.clicked.connect(self._schulung_bearbeiten)
+        sbtn_row.addWidget(self._schulung_btn_bearbeiten)
+
+        self._schulung_btn_loeschen = _btn_light("🗑  Löschen")
+        self._schulung_btn_loeschen.setEnabled(False)
+        self._schulung_btn_loeschen.setStyleSheet(
+            "QPushButton{background:#eee;color:#333;border:none;"
+            "border-radius:4px;padding:4px 14px;font-size:12px;}"
+            "QPushButton:hover{background:#ffcccc;color:#a00;}"
+            "QPushButton:disabled{background:#f5f5f5;color:#bbb;}"
+        )
+        self._schulung_btn_loeschen.clicked.connect(self._schulung_loeschen)
+        sbtn_row.addWidget(self._schulung_btn_loeschen)
+
+        sbtn_row.addStretch()
+        self._schulung_treffer_lbl = QLabel()
+        self._schulung_treffer_lbl.setStyleSheet("color:#666; font-size:11px;")
+        sbtn_row.addWidget(self._schulung_treffer_lbl)
+
+        layout.addLayout(sbtn_row)
+        return w
+
+    # ── Schulungen: Filter / Laden ────────────────────────────────────────────
+
+    def _schulung_jahre_aktualisieren(self):
+        current = self._schulung_combo_jahr.currentData()
+        self._schulung_combo_jahr.blockSignals(True)
+        self._schulung_combo_jahr.clear()
+        self._schulung_combo_jahr.addItem("Alle", None)
+        for j in sdb_jahre():
+            self._schulung_combo_jahr.addItem(str(j), j)
+        for i in range(self._schulung_combo_jahr.count()):
+            if self._schulung_combo_jahr.itemData(i) == current:
+                self._schulung_combo_jahr.setCurrentIndex(i)
+                break
+        self._schulung_combo_jahr.blockSignals(False)
+
+    def _schulung_filter_reset(self):
+        self._schulung_combo_jahr.blockSignals(True)
+        self._schulung_combo_jahr.setCurrentIndex(0)
+        self._schulung_combo_jahr.blockSignals(False)
+        self._schulung_suche.blockSignals(True)
+        self._schulung_suche.clear()
+        self._schulung_suche.blockSignals(False)
+        self._schulung_lade()
+
+    def _schulung_filter_changed(self):
+        self._schulung_lade()
+
+    def _schulung_lade(self):
+        jahr  = self._schulung_combo_jahr.currentData()
+        suche = self._schulung_suche.text().strip() or None
+        try:
+            eintraege = lade_schulungen(jahr=jahr, mitarbeiter=suche)
+        except Exception as exc:
+            QMessageBox.critical(self, "Datenbankfehler", str(exc))
+            return
+        # Client-seitige Suche auch auf Schulungsart und Bemerkung ausdehnen
+        if suche:
+            s = suche.lower()
+            eintraege = [
+                e for e in eintraege
+                if s in (e.get("mitarbeiter") or "").lower()
+                or s in (e.get("schulungsart") or "").lower()
+                or s in (e.get("bemerkung") or "").lower()
+            ]
+        self._schulung_eintraege = eintraege
+        STATUS_FARBEN = {
+            "bestanden":  "#e8f5e9",
+            "ausstehend": "#fff9c4",
+            "abgebrochen":"#ffebee",
+            "abgelaufen": "#fce4ec",
+        }
+        self._schulung_table.setRowCount(len(eintraege))
+        for row, e in enumerate(eintraege):
+            status = e.get("status", "")
+            row_data = [
+                e.get("datum", ""),
+                e.get("mitarbeiter", ""),
+                e.get("schulungsart", ""),
+                e.get("gueltig_bis", "") or "—",
+                status,
+                e.get("bemerkung", "") or "—",
+                str(e.get("id", "")),
+            ]
+            bg = STATUS_FARBEN.get(status)
+            for col, text in enumerate(row_data):
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(
+                    Qt.AlignmentFlag.AlignCenter if col in (0, 3, 4, 6)
+                    else Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+                )
+                if bg:
+                    item.setBackground(QColor(bg))
+                self._schulung_table.setItem(row, col, item)
+        n = len(eintraege)
+        self._schulung_treffer_lbl.setText(f"{n} Eintrag{'e' if n != 1 else ''}")
+        self._schulung_auswahl_geaendert()
+
+    def _schulung_auswahl_geaendert(self):
+        hat = bool(self._schulung_aktuell_eintrag())
+        for btn in (self._schulung_btn_bearbeiten, self._schulung_btn_loeschen):
+            btn.setEnabled(hat)
+
+    def _schulung_aktuell_eintrag(self) -> dict | None:
+        row = self._schulung_table.currentRow()
+        try:
+            return self._schulung_eintraege[row]
+        except (AttributeError, IndexError):
+            return None
+
+    # ── Schulungen: Aktionen ──────────────────────────────────────────────────
+
+    def _schulung_erfassen(self):
+        dlg = _SchulungDialog(parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        daten = dlg.get_daten()
+        try:
+            schulung_speichern(daten)
+            self._schulung_lade()
+            self._schulung_jahre_aktualisieren()
+            QMessageBox.information(
+                self, "Schulung erfasst",
+                f"Der Eintrag wurde gespeichert.\n\n"
+                f"Mitarbeiter: {daten['mitarbeiter']}\n"
+                f"Schulungsart: {daten['schulungsart']}\n"
+                f"Datum: {daten['datum']}"
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Fehler beim Speichern", str(exc))
+
+    def _schulung_bearbeiten(self):
+        e = self._schulung_aktuell_eintrag()
+        if not e:
+            return
+        dlg = _SchulungDialog(daten=dict(e), parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        daten = dlg.get_daten()
+        try:
+            schulung_aktualisieren(e["id"], daten)
+            self._schulung_lade()
+        except Exception as exc:
+            QMessageBox.critical(self, "Fehler beim Bearbeiten", str(exc))
+
+    def _schulung_loeschen(self):
+        e = self._schulung_aktuell_eintrag()
+        if not e:
+            return
+        antwort = QMessageBox.question(
+            self, "Eintrag löschen",
+            f"Schulungseintrag wirklich löschen?\n\n"
+            f"Mitarbeiter: {e.get('mitarbeiter', '')}\n"
+            f"Datum: {e.get('datum', '')}\n"
+            f"Schulungsart: {e.get('schulungsart', '')}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if antwort == QMessageBox.StandardButton.Yes:
+            try:
+                sdb_loeschen(e["id"])
+                self._schulung_lade()
+                self._schulung_jahre_aktualisieren()
+            except Exception as exc:
+                QMessageBox.critical(self, "Fehler", str(exc))
+
     def _versp_jahre_aktualisieren(self):
         current = self._versp_combo_jahr.currentData()
         self._versp_combo_jahr.blockSignals(True)
@@ -2136,7 +2529,7 @@ class MitarbeiterDokumenteWidget(QWidget):
             anzahl = len(self._dokumente.get(kat, []))
             item = self._kat_list.item(row)
             if item:
-                if kat in ("Verspätung", "PSA"):
+                if kat in ("Verspätung", "PSA", "Schulungen"):
                     item.setText(f"●  {kat}")
                 else:
                     item.setText(f"●  {kat}  ({anzahl})")
@@ -2148,6 +2541,7 @@ class MitarbeiterDokumenteWidget(QWidget):
         is_stell  = (kategorie == "Stellungnahmen")
         is_versp  = (kategorie == "Verspätung")
         is_psa    = (kategorie == "PSA")
+        is_schulung = (kategorie == "Schulungen")
         is_antrag = (kategorie == "Bescheinigungen und Anträge")
         is_dienstanw = (kategorie == "Dienstanweisungen")
         self._btn_stellungnahme.setVisible(is_stell)
@@ -2155,13 +2549,15 @@ class MitarbeiterDokumenteWidget(QWidget):
         self._tabs.setTabVisible(1, is_stell)
         self._btn_verspaetung.setVisible(is_versp)
         self._btn_psa.setVisible(is_psa)
+        self._btn_schulung.setVisible(is_schulung)
         self._btn_word_druck.setVisible(is_dienstanw)
-        self._btn_neu.setVisible(not is_versp and not is_psa and not is_stell and not is_antrag and not is_dienstanw)
-        self._tabs.setTabVisible(0, not is_versp and not is_psa)  # Dateien-Tab ausblenden
+        self._btn_neu.setVisible(not is_versp and not is_psa and not is_schulung and not is_stell and not is_antrag and not is_dienstanw)
+        self._tabs.setTabVisible(0, not is_versp and not is_psa and not is_schulung)  # Dateien-Tab ausblenden
         self._tabs.setTabVisible(2, is_versp)
         self._tabs.setTabVisible(3, is_psa)
         self._tabs.setTabVisible(4, False)
         self._tabs.setTabVisible(5, False)
+        self._tabs.setTabVisible(6, is_schulung)
         self._antraege_panel.setVisible(is_antrag)
         if is_psa:
             self._tabs.setCurrentIndex(3)
@@ -2171,6 +2567,10 @@ class MitarbeiterDokumenteWidget(QWidget):
             self._tabs.setCurrentIndex(2)
             self._versp_jahre_aktualisieren()
             self._versp_lade()
+        elif is_schulung:
+            self._tabs.setCurrentIndex(6)
+            self._schulung_jahre_aktualisieren()
+            self._schulung_lade()
         else:
             self._tabs.setCurrentIndex(0)
 
@@ -2216,10 +2616,11 @@ class MitarbeiterDokumenteWidget(QWidget):
         self._btn_web.setVisible(False)
         self._btn_verspaetung.setVisible(False)
         self._btn_psa.setVisible(False)
+        self._btn_schulung.setVisible(False)
         self._btn_word_druck.setVisible(False)
         self._antraege_panel.setVisible(False)
         self._datei_filter_frame.setVisible(False)
-        for i in range(6):
+        for i in range(7):
             self._tabs.setTabVisible(i, False)
         self._tabs.setTabVisible(tab_index, True)
         self._tabs.setCurrentIndex(tab_index)
