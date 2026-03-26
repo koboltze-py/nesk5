@@ -171,6 +171,20 @@ CREATE TABLE IF NOT EXISTS drk_daten_backup_log (
     gesicherte_ordner INTEGER DEFAULT 0,
     fehler_ordner   INTEGER DEFAULT 0,
     erstellt_am     TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS tages_pax (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    datum       TEXT NOT NULL UNIQUE,
+    pax_zahl    INTEGER NOT NULL DEFAULT 0,
+    erfasst_am  TEXT DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS tages_einsaetze (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    datum           TEXT NOT NULL UNIQUE,
+    einsaetze_zahl  INTEGER NOT NULL DEFAULT 0,
+    erfasst_am      TEXT DEFAULT (datetime('now','localtime'))
 );"""
 
 _default_ordner = (

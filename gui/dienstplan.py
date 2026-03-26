@@ -13,9 +13,9 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QDialog,
     QFormLayout, QComboBox, QDateEdit, QTimeEdit, QTextEdit,
-    QMessageBox, QFileDialog, QSpinBox, QFrame,
+    QMessageBox, QFileDialog, QSpinBox, QFrame, QLineEdit,
     QTreeView, QSplitter, QFileSystemModel,
-    QScrollArea, QCheckBox
+    QScrollArea, QCheckBox, QRadioButton, QButtonGroup
 )
 from PySide6.QtCore import Qt, QDate, QTime, Signal, QFileSystemWatcher
 from PySide6.QtGui import QFont, QColor
@@ -180,10 +180,49 @@ class ExportDialog(QDialog):
         self._pax.setRange(0, 99999)
         self._pax.setValue(0)
 
-        form.addRow("Von:",       self._von)
-        form.addRow("Bis:",       self._bis)
-        form.addRow("PAX-Zahl:", self._pax)
+        self._bulmor = QSpinBox()
+        self._bulmor.setRange(0, 5)
+        self._bulmor.setValue(5)
+        self._bulmor.setToolTip("Anzahl fahrbereiter Bulmor-Fahrzeuge (wird im Dashboard-Format angezeigt)")
+
+        self._einsaetze = QSpinBox()
+        self._einsaetze.setRange(0, 9999)
+        self._einsaetze.setValue(0)
+        self._einsaetze.setToolTip("Anzahl der Schichtleiter-Einsaetze / Behandlungen dieser Schicht")
+
+        self._sl_tag = QLineEdit()
+        self._sl_tag.setPlaceholderText("Name Schichtleiter Tag")
+        self._sl_nacht = QLineEdit()
+        self._sl_nacht.setPlaceholderText("Name Schichtleiter Nacht")
+
+        form.addRow("Von:",              self._von)
+        form.addRow("Bis:",              self._bis)
+        form.addRow("PAX-Zahl:",        self._pax)
+        form.addRow("Aktive Bulmor:",   self._bulmor)
+        form.addRow("SL-Einsaetze:",   self._einsaetze)
+        form.addRow("SL Tag (Name):",   self._sl_tag)
+        form.addRow("SL Nacht (Name):", self._sl_nacht)
         layout.addLayout(form)
+
+        # -- Format-Auswahl -------------------------------------------
+        sep_fmt = QFrame()
+        sep_fmt.setFrameShape(QFrame.Shape.HLine)
+        sep_fmt.setStyleSheet("color: #ddd;")
+        layout.addWidget(sep_fmt)
+
+        fmt_lbl = QLabel("Exportformat:")
+        fmt_lbl.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        fmt_lbl.setStyleSheet("color: #333; padding: 2px 0;")
+        layout.addWidget(fmt_lbl)
+
+        self._fmt_gruppe = QButtonGroup(self)
+        self._rb_klassisch = QRadioButton("Klassische Stärkemeldung  (bisheriges Format)")
+        self._rb_dashboard = QRadioButton("Mit Dashboard-Panel links  (neues Format)")
+        self._rb_klassisch.setChecked(True)
+        self._fmt_gruppe.addButton(self._rb_klassisch, 0)
+        self._fmt_gruppe.addButton(self._rb_dashboard, 1)
+        layout.addWidget(self._rb_klassisch)
+        layout.addWidget(self._rb_dashboard)
 
         # -- Sonderdienst-Abschnitt -------------------------------------
         sonder_personen = []
@@ -297,8 +336,13 @@ class ExportDialog(QDialog):
             'von_datum':               datetime(qv.year(), qv.month(), qv.day()),
             'bis_datum':               datetime(qb.year(), qb.month(), qb.day()),
             'pax_zahl':                self._pax.value(),
+            'bulmor_aktiv':            self._bulmor.value(),
+            'einsaetze_zahl':          self._einsaetze.value(),
+            'sl_tag_name':             self._sl_tag.text().strip(),
+            'sl_nacht_name':           self._sl_nacht.text().strip(),
             'ausgabe_pfad':            ausgabe_pfad,
             'ausgeschlossene_vollnamen': ausgeschlossene,
+            'format':                  'dashboard' if self._rb_dashboard.isChecked() else 'klassisch',
         }
         self.accept()
 
@@ -1223,6 +1267,467 @@ class _DienstplanPane(QWidget):
             return None
 
 
+class PaxMonatsübersichtDialog(QDialog):
+    """
+    Zeigt vor dem Word-Export die Monatsübersicht der PAX- und Einsatz-Einträge.
+    Fehlende Tage (kein Eintrag, Wert = 0) werden rot hervorgehoben.
+    Der Nutzer kann direkt fortfahren oder den Export abbrechen.
+    """
+
+    def __init__(self, von_datum, pax_heute: int, einsaetze_heute: int, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Monatsübersicht vor dem Export")
+        self.setMinimumSize(700, 520)
+        self._von          = von_datum
+        self._pax_heute    = pax_heute
+        self._ein_heute    = einsaetze_heute
+        self._build_ui()
+
+    # ------------------------------------------------------------------
+    def _build_ui(self):
+        import calendar
+        from datetime import date, timedelta
+        from database.pax_db import lade_alle_eintraege
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        monat = self._von.month
+        jahr  = self._von.year
+        heute_str = self._von.strftime("%Y-%m-%d")
+
+        # ── Warnung ──────────────────────────────────────────────────────────
+        warn = QLabel(
+            "⚠️  Bitte prüfen: Für eine korrekte Jahressumme sollte jeder Betriebstag "
+            "eine PAX-Zahl und eine SL-Einsatzzahl haben.\n"
+            "Fehlende Einträge (Wert = 0) sind rot markiert. "
+            "Du kannst den Export trotzdem fortsetzen."
+        )
+        warn.setWordWrap(True)
+        warn.setStyleSheet(
+            "background:#fff3cd; border:1px solid #ffc107; border-radius:5px; "
+            "padding:8px 12px; color:#856404; font-size:12px;"
+        )
+        layout.addWidget(warn)
+
+        # ── Monats-Titel ─────────────────────────────────────────────────────
+        monat_lbl = QLabel(
+            f"Monat: {calendar.month_name[monat]} {jahr}  "
+            f"(Heute eingetragen:  PAX = {self._pax_heute:,}   |   SL-Einsätze = {self._ein_heute})"
+        )
+        monat_lbl.setStyleSheet("font-weight:bold; font-size:13px; color:#103060; padding:4px 0;")
+        layout.addWidget(monat_lbl)
+
+        # ── Tabelle ───────────────────────────────────────────────────────────
+        table = QTableWidget()
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["Datum", "Wochentag", "PAX-Zahl", "SL-Einsätze"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setAlternatingRowColors(True)
+        table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        table.setStyleSheet(
+            "QTableWidget { border:1px solid #dce8f5; border-radius:4px; }"
+            "QHeaderView::section { background:#e8f0fb; font-weight:bold; padding:4px; }"
+        )
+
+        # Alle Einträge des Monats laden (inklusive heute)
+        try:
+            alle = {e["datum"]: e for e in lade_alle_eintraege(jahr)}
+        except Exception:
+            alle = {}
+
+        # Zukunftsdaten erkennen (Einträge mit Datum > heute)
+        heute_date = date.today()
+        zukunfts_eintraege = [
+            d_str for d_str in alle
+            if date.fromisoformat(d_str) > heute_date
+        ]
+        if zukunfts_eintraege:
+            zukunfts_eintraege.sort()
+            zukunft_warn = QLabel(
+                f"\u26a0\ufe0f  ACHTUNG: Es gibt {len(zukunfts_eintraege)} Eintrag/Eintr\u00e4ge mit Datum in der ZUKUNFT: "
+                + ", ".join(zukunfts_eintraege)
+                + "\n   Das ist ein Fehler \u2013 bitte im Verwaltungs-Dialog korrigieren oder l\u00f6schen!"
+            )
+            zukunft_warn.setWordWrap(True)
+            zukunft_warn.setStyleSheet(
+                "background:#f8d7da; border:2px solid #dc3545; border-radius:5px; "
+                "padding:8px 12px; color:#721c24; font-size:12px; font-weight:bold;"
+            )
+            layout.insertWidget(0, zukunft_warn)
+
+        # Heutigen Eintrag mit den frisch eingegebenen Werten überschreiben
+        if self._pax_heute > 0 or self._ein_heute > 0:
+            alle[heute_str] = {
+                "datum": heute_str,
+                "pax_zahl": self._pax_heute,
+                "einsaetze_zahl": self._ein_heute,
+            }
+
+        wochentage = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+        tage_im_monat = calendar.monthrange(jahr, monat)[1]
+        fehlende = 0
+
+        for tag in range(1, tage_im_monat + 1):
+            d = date(jahr, monat, tag)
+            if d > date.today():
+                continue  # Zukunft nicht anzeigen
+            d_str = d.strftime("%Y-%m-%d")
+            eintrag = alle.get(d_str)
+            pax = eintrag["pax_zahl"]    if eintrag else 0
+            ein = eintrag["einsaetze_zahl"] if eintrag else 0
+            fehlt = (pax == 0) or (ein == 0)
+            if fehlt:
+                fehlende += 1
+
+            row = table.rowCount()
+            table.insertRow(row)
+
+            datum_item = QTableWidgetItem(d_str)
+            wt_item    = QTableWidgetItem(wochentage[d.weekday()])
+            pax_item   = QTableWidgetItem(str(pax) if pax else "—")
+            ein_item   = QTableWidgetItem(str(ein) if ein else "—")
+
+            for item in (datum_item, wt_item, pax_item, ein_item):
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if fehlt:
+                    item.setBackground(QColor("#ffe0e0"))
+                    item.setForeground(QColor("#b00000"))
+                if d_str == heute_str:
+                    item.setBackground(QColor("#d4edda"))
+                    item.setForeground(QColor("#155724"))
+
+            table.setItem(row, 0, datum_item)
+            table.setItem(row, 1, wt_item)
+            table.setItem(row, 2, pax_item)
+            table.setItem(row, 3, ein_item)
+
+        # Zu heute-Zeile scrollen
+        for r in range(table.rowCount()):
+            if table.item(r, 0) and table.item(r, 0).text() == heute_str:
+                table.scrollToItem(table.item(r, 0))
+                break
+
+        layout.addWidget(table)
+
+        # ── Fehlende-Einträge-Info ────────────────────────────────────────────
+        if fehlende:
+            fehler_lbl = QLabel(
+                f"❌  {fehlende} Tag(e) haben fehlende oder unvollständige Einträge (rot markiert). "
+                "Bitte im Verwaltungs-Dialog nachtragen oder jetzt trotzdem exportieren."
+            )
+            fehler_lbl.setWordWrap(True)
+            fehler_lbl.setStyleSheet(
+                "color:#b00000; font-size:11px; padding:4px 0;"
+            )
+            layout.addWidget(fehler_lbl)
+
+        # ── Buttons ───────────────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+
+        verwaltung_btn = QPushButton("PAX & Einsätze jetzt nachtragen ...")
+        verwaltung_btn.setMinimumHeight(32)
+        verwaltung_btn.setStyleSheet(
+            "background:#5a3e8c;color:white;border:none;border-radius:4px;padding:0 12px;"
+        )
+        verwaltung_btn.clicked.connect(self._verwaltung_oeffnen)
+        btn_row.addWidget(verwaltung_btn)
+
+        btn_row.addStretch()
+
+        export_btn = QPushButton("Trotzdem exportieren")
+        export_btn.setMinimumHeight(32)
+        export_btn.setStyleSheet(
+            f"background:{FIORI_BLUE};color:white;border:none;border-radius:4px;padding:0 16px;"
+        )
+        export_btn.clicked.connect(self.accept)
+        btn_row.addWidget(export_btn)
+
+        abbruch_btn = QPushButton("Abbrechen")
+        abbruch_btn.setMinimumHeight(32)
+        abbruch_btn.clicked.connect(self.reject)
+        btn_row.addWidget(abbruch_btn)
+
+        layout.addLayout(btn_row)
+
+    def _verwaltung_oeffnen(self):
+        dlg = PaxEinsatzVerwaltungDialog(parent=self)
+        dlg.exec()
+        # Dialog schließen, damit Nutzer zurück zum Export kann (neu aufgerufen)
+        self.reject()
+
+
+class PaxEinsatzVerwaltungDialog(QDialog):
+    """Dialog zum Anzeigen und Bearbeiten der täglichen PAX- und Einsatzzahlen."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("PAX & SL-Einsätze verwalten")
+        self.setMinimumSize(680, 500)
+        self._build_ui()
+        self._lade_daten()
+
+    # ------------------------------------------------------------------
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        # ── Jahr-Auswahl ────────────────────────────────────────────────
+        top = QHBoxLayout()
+        top.addWidget(QLabel("Jahr:"))
+        self._jahr_spin = QSpinBox()
+        self._jahr_spin.setRange(2020, 2099)
+        self._jahr_spin.setValue(datetime.now().year)
+        self._jahr_spin.setFixedWidth(80)
+        self._jahr_spin.valueChanged.connect(self._lade_daten)
+        top.addWidget(self._jahr_spin)
+        top.addStretch()
+
+        self._summen_lbl = QLabel("")
+        self._summen_lbl.setStyleSheet("font-weight: bold; color: #0a5ba4;")
+        top.addWidget(self._summen_lbl)
+        layout.addLayout(top)
+
+        # ── Hinweis ─────────────────────────────────────────────────────
+        hint = QLabel(
+            "Doppelklick auf eine Zelle zum Bearbeiten. "
+            "Datum im Format JJJJ-MM-TT eintragen."
+        )
+        hint.setStyleSheet("color: #666; font-size: 11px;")
+        layout.addWidget(hint)
+
+        # ── Tabelle ─────────────────────────────────────────────────────
+        self._table = QTableWidget()
+        self._table.setColumnCount(3)
+        self._table.setHorizontalHeaderLabels(["Datum", "PAX-Zahl", "SL-Einsätze"])
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.setAlternatingRowColors(True)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked |
+                                    QTableWidget.EditTrigger.SelectedClicked)
+        self._table.itemChanged.connect(self._on_item_changed)
+        self._table.setStyleSheet(
+            "QTableWidget { border: 1px solid #dce8f5; border-radius: 4px; }"
+            "QHeaderView::section { background: #e8f0fb; font-weight: bold; padding: 4px; }"
+        )
+        layout.addWidget(self._table)
+
+        # ── Buttons ─────────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+
+        add_btn = QPushButton("+ Eintrag hinzufügen")
+        add_btn.setMinimumHeight(32)
+        add_btn.setStyleSheet(
+            f"background:{FIORI_BLUE};color:white;border:none;border-radius:4px;padding:0 12px;"
+        )
+        add_btn.clicked.connect(self._eintrag_hinzufuegen)
+        btn_row.addWidget(add_btn)
+
+        del_btn = QPushButton("Zeile löschen")
+        del_btn.setMinimumHeight(32)
+        del_btn.setStyleSheet(
+            f"background:{FIORI_ERROR};color:white;border:none;border-radius:4px;padding:0 12px;"
+        )
+        del_btn.clicked.connect(self._zeile_loeschen)
+        btn_row.addWidget(del_btn)
+
+        btn_row.addStretch()
+
+        save_btn = QPushButton("Speichern")
+        save_btn.setMinimumHeight(32)
+        save_btn.setStyleSheet(
+            "background:#107e3e;color:white;border:none;border-radius:4px;padding:0 16px;"
+        )
+        save_btn.clicked.connect(self._speichern)
+        btn_row.addWidget(save_btn)
+
+        close_btn = QPushButton("Schließen")
+        close_btn.setMinimumHeight(32)
+        close_btn.clicked.connect(self.accept)
+        btn_row.addWidget(close_btn)
+
+        layout.addLayout(btn_row)
+
+        self._aenderungen: set[int] = set()  # geänderte Zeilen-Indices
+
+    # ------------------------------------------------------------------
+    def _lade_daten(self):
+        from database.pax_db import lade_alle_eintraege
+        from datetime import date as _date
+        self._table.blockSignals(True)
+        self._table.setRowCount(0)
+        self._aenderungen.clear()
+
+        jahr = self._jahr_spin.value()
+        eintraege = lade_alle_eintraege(jahr)
+        heute = _date.today()
+        zukunft_gefunden = []
+
+        for eintrag in eintraege:
+            row = self._table.rowCount()
+            self._table.insertRow(row)
+            d_str = eintrag["datum"]
+            item_datum = QTableWidgetItem(d_str)
+            item_pax   = QTableWidgetItem(str(eintrag["pax_zahl"]))
+            item_ein   = QTableWidgetItem(str(eintrag["einsaetze_zahl"]))
+
+            # Zukunftsdaten orange + Tooltip
+            try:
+                ist_zukunft = _date.fromisoformat(d_str) > heute
+            except ValueError:
+                ist_zukunft = False
+            if ist_zukunft:
+                zukunft_gefunden.append(d_str)
+                for item in (item_datum, item_pax, item_ein):
+                    item.setBackground(QColor("#fff3cd"))
+                    item.setForeground(QColor("#856404"))
+                    item.setToolTip("\u26a0 Zukunftsdatum \u2013 bitte l\u00f6schen!")
+
+            self._table.setItem(row, 0, item_datum)
+            self._table.setItem(row, 1, item_pax)
+            self._table.setItem(row, 2, item_ein)
+
+        self._table.blockSignals(False)
+        self._update_summen()
+
+        if zukunft_gefunden:
+            QMessageBox.warning(
+                self,
+                "Zukunftsdaten gefunden",
+                f"\u26a0\ufe0f  Achtung: Es gibt {len(zukunft_gefunden)} Eintrag/Eintr\u00e4ge "
+                f"mit Datum in der Zukunft:\n\n  "
+                + "\n  ".join(zukunft_gefunden)
+                + "\n\nBitte diese Zeilen l\u00f6schen! Orange markierte Zeilen anw\u00e4hlen "
+                "und die Schaltfl\u00e4che 'Zeile l\u00f6schen' nutzen."
+            )
+
+    def _update_summen(self):
+        total_pax = 0
+        total_ein = 0
+        for r in range(self._table.rowCount()):
+            try:
+                total_pax += int(self._table.item(r, 1).text())
+            except Exception:
+                pass
+            try:
+                total_ein += int(self._table.item(r, 2).text())
+            except Exception:
+                pass
+        self._summen_lbl.setText(
+            f"Gesamt PAX: {total_pax:,}   |   Gesamt SL-Einsätze: {total_ein}"
+        )
+
+    def _on_item_changed(self, item: QTableWidgetItem):
+        self._aenderungen.add(item.row())
+        self._update_summen()
+
+    # ------------------------------------------------------------------
+    def _eintrag_hinzufuegen(self):
+        row = self._table.rowCount()
+        self._table.insertRow(row)
+        heute = datetime.now().strftime("%Y-%m-%d")
+        self._table.blockSignals(True)
+        self._table.setItem(row, 0, QTableWidgetItem(heute))
+        self._table.setItem(row, 1, QTableWidgetItem("0"))
+        self._table.setItem(row, 2, QTableWidgetItem("0"))
+        self._table.blockSignals(False)
+        self._aenderungen.add(row)
+        self._table.scrollToBottom()
+        self._table.setCurrentCell(row, 0)
+        self._table.editItem(self._table.item(row, 0))
+
+    def _zeile_loeschen(self):
+        selected = self._table.selectedItems()
+        if not selected:
+            QMessageBox.information(self, "Hinweis", "Bitte erst eine Zeile auswählen.")
+            return
+        row = self._table.currentRow()
+        datum_item = self._table.item(row, 0)
+        datum = datum_item.text().strip() if datum_item else ""
+        antwort = QMessageBox.question(
+            self, "Eintrag löschen",
+            f"Eintrag für {datum or 'diese Zeile'} wirklich löschen?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if antwort != QMessageBox.StandardButton.Yes:
+            return
+        if datum:
+            try:
+                from database.pax_db import loesche_eintrag
+                loesche_eintrag(datum)
+            except Exception as exc:
+                QMessageBox.warning(self, "Fehler", f"Löschen fehlgeschlagen:\n{exc}")
+                return
+        self._table.removeRow(row)
+        self._aenderungen.discard(row)
+        self._update_summen()
+
+    # ------------------------------------------------------------------
+    def _speichern(self):
+        from database.pax_db import speichere_tages_pax, speichere_tages_einsaetze
+        fehler = []
+        gespeichert = 0
+
+        rows_to_save = sorted(self._aenderungen)
+        if not rows_to_save:
+            QMessageBox.information(self, "Hinweis", "Keine Änderungen vorhanden.")
+            return
+
+        for row in rows_to_save:
+            if row >= self._table.rowCount():
+                continue
+            datum_item = self._table.item(row, 0)
+            pax_item   = self._table.item(row, 1)
+            ein_item   = self._table.item(row, 2)
+
+            datum = datum_item.text().strip() if datum_item else ""
+            if not datum:
+                fehler.append(f"Zeile {row+1}: Kein Datum eingetragen.")
+                continue
+
+            # Datumsformat prüfen
+            try:
+                datetime.strptime(datum, "%Y-%m-%d")
+            except ValueError:
+                fehler.append(f"Zeile {row+1}: Datum '{datum}' nicht im Format JJJJ-MM-TT.")
+                continue
+
+            try:
+                pax = int(pax_item.text()) if pax_item else 0
+            except ValueError:
+                fehler.append(f"Zeile {row+1}: Ungültige PAX-Zahl.")
+                continue
+            try:
+                ein = int(ein_item.text()) if ein_item else 0
+            except ValueError:
+                fehler.append(f"Zeile {row+1}: Ungültige Einsatz-Zahl.")
+                continue
+
+            try:
+                if pax > 0:
+                    speichere_tages_pax(datum, pax)
+                if ein > 0:
+                    speichere_tages_einsaetze(datum, ein)
+                gespeichert += 1
+            except Exception as exc:
+                fehler.append(f"Zeile {row+1}: DB-Fehler: {exc}")
+
+        if fehler:
+            QMessageBox.warning(self, "Fehler beim Speichern",
+                                "Folgende Fehler sind aufgetreten:\n\n" + "\n".join(fehler))
+        else:
+            self._aenderungen.clear()
+            QMessageBox.information(self, "Gespeichert",
+                                    f"{gespeichert} Eintrag/Einträge erfolgreich gespeichert.")
+        self._lade_daten()
+
+
 class DienstplanWidget(QWidget):
     MAX_PANES = 4   # bis zu 4 Dienstplaene nebeneinander
 
@@ -1264,6 +1769,16 @@ class DienstplanWidget(QWidget):
         )
         word_btn.clicked.connect(self._word_exportieren)
         top.addWidget(word_btn)
+
+        pax_btn = QPushButton("PAX & Einsätze verwalten")
+        pax_btn.setMinimumHeight(36)
+        pax_btn.setToolTip("PAX-Zahlen und SL-Einsätze pro Tag einsehen und korrigieren")
+        pax_btn.setStyleSheet(
+            "background-color: #5a3e8c; color: white; "
+            "border-radius: 4px; padding: 0 12px;"
+        )
+        pax_btn.clicked.connect(self._pax_verwalten)
+        top.addWidget(pax_btn)
 
         html_btn = QPushButton("🌐  Als Webseite anzeigen")
         html_btn.setMinimumHeight(36)
@@ -1599,6 +2114,11 @@ class DienstplanWidget(QWidget):
     # Word-Export
     # ------------------------------------------------------------------
 
+    def _pax_verwalten(self):
+        """Öffnet den Dialog zur Verwaltung von PAX- und Einsatzzahlen."""
+        dlg = PaxEinsatzVerwaltungDialog(parent=self)
+        dlg.exec()
+
     def _word_exportieren(self):
         pane = self._export_pane()
         if pane.parsed_data is None:
@@ -1630,16 +2150,55 @@ class DienstplanWidget(QWidget):
             return
 
         params = dlg.result
-        try:
-            from functions.staerkemeldung_export import StaerkemeldungExport
-            exporter = StaerkemeldungExport(
-                dienstplan_data           = export_data,
-                ausgabe_pfad              = params['ausgabe_pfad'],
-                von_datum                 = params['von_datum'],
-                bis_datum                 = params['bis_datum'],
-                pax_zahl                  = params['pax_zahl'],
-                ausgeschlossene_vollnamen  = params.get('ausgeschlossene_vollnamen', set()),
+
+        # ── Schritt 3: Monatsübersicht anzeigen (nur Dashboard-Format) ────────
+        if params.get('format') == 'dashboard':
+            monats_dlg = PaxMonatsübersichtDialog(
+                von_datum      = params['von_datum'],
+                pax_heute      = params.get('pax_zahl', 0),
+                einsaetze_heute= params.get('einsaetze_zahl', 0),
+                parent         = self,
             )
+            if monats_dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+
+        try:
+            # PAX-Zahl + Einsätze VOR Export in DB speichern, damit die
+            # Jahressummen im Dashboard-Word bereits den heutigen Wert enthalten.
+            try:
+                from database.pax_db import speichere_tages_pax, speichere_tages_einsaetze
+                datum_str = params['von_datum'].strftime('%Y-%m-%d')
+                if params.get('pax_zahl', 0) > 0:
+                    speichere_tages_pax(datum_str, params['pax_zahl'])
+                if params.get('einsaetze_zahl', 0) > 0:
+                    speichere_tages_einsaetze(datum_str, params['einsaetze_zahl'])
+            except Exception:
+                pass  # nicht-kritisch
+
+            if params.get('format') == 'dashboard':
+                from functions.staerkemeldung_dashboard_export import StaerkemeldungDashboardExport
+                exporter = StaerkemeldungDashboardExport(
+                    dienstplan_data           = export_data,
+                    ausgabe_pfad              = params['ausgabe_pfad'],
+                    von_datum                 = params['von_datum'],
+                    bis_datum                 = params['bis_datum'],
+                    pax_zahl                  = params['pax_zahl'],
+                    bulmor_aktiv              = params.get('bulmor_aktiv', 5),
+                    einsaetze_zahl            = params.get('einsaetze_zahl', 0),
+                    sl_tag_name               = params.get('sl_tag_name', ''),
+                    sl_nacht_name             = params.get('sl_nacht_name', ''),
+                    ausgeschlossene_vollnamen  = params.get('ausgeschlossene_vollnamen', set()),
+                )
+            else:
+                from functions.staerkemeldung_export import StaerkemeldungExport
+                exporter = StaerkemeldungExport(
+                    dienstplan_data           = export_data,
+                    ausgabe_pfad              = params['ausgabe_pfad'],
+                    von_datum                 = params['von_datum'],
+                    bis_datum                 = params['bis_datum'],
+                    pax_zahl                  = params['pax_zahl'],
+                    ausgeschlossene_vollnamen  = params.get('ausgeschlossene_vollnamen', set()),
+                )
             pfad, warnungen = exporter.export()
 
             if warnungen:

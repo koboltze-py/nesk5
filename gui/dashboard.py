@@ -433,6 +433,17 @@ class DashboardWidget(QWidget):
         )
         rechte.addWidget(self._db_status_lbl)
 
+        # PAX-Statistik-Karten
+        pax_row = QHBoxLayout()
+        pax_row.setSpacing(10)
+        self._card_pax_jahr = StatCard(
+            f"PAX {QDate.currentDate().year()}", "–", "✈", "#0078D4"
+        )
+        self._card_pax_gestern = StatCard("PAX Vortag", "–", "📊", "#107c10")
+        pax_row.addWidget(self._card_pax_jahr)
+        pax_row.addWidget(self._card_pax_gestern)
+        rechte.addLayout(pax_row)
+
         # Dienstplan-Panels (heute, im Nachtdienst auch gestern)
         from PySide6.QtWidgets import QPushButton, QTableWidget, QHeaderView
 
@@ -1011,6 +1022,26 @@ class DashboardWidget(QWidget):
 
         # Dienstplan
         self._aktualisiere_dp_panels()
+
+        # PAX-Statistiken
+        self._lade_pax_stats()
+
+    # ── PAX-Statistiken ───────────────────────────────────────────────────
+
+    def _lade_pax_stats(self):
+        """Lädt PAX-Jahressumme und Vortag-PAX aus der DB und aktualisiert die StatCards."""
+        try:
+            from database.pax_db import lade_jahres_pax, lade_tages_pax
+            from datetime import date as _date, timedelta
+            heute = _date.today()
+            gestern = heute - timedelta(days=1)
+            jahr = heute.year
+            pax_jahr = lade_jahres_pax(jahr)
+            pax_gestern = lade_tages_pax(gestern.isoformat())
+            self._card_pax_jahr.set_value(f"{pax_jahr:,}".replace(",", "."))
+            self._card_pax_gestern.set_value(f"{pax_gestern:,}".replace(",", ".") if pax_gestern else "–")
+        except Exception:
+            pass  # Tabelle existiert noch nicht → einfach ignorieren
 
     # ── Krankmeldungen ────────────────────────────────────────────────────
 
