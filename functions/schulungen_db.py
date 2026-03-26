@@ -27,7 +27,7 @@ _EXCEL_PFAD = (
 # laeuft_nicht_ab: kein Farbwarner im Kalender (z. B. ärztl. Untersuchung)
 SCHULUNGSTYPEN_CFG = {
     "ZÜP":                    {"anzeige": "ZÜP",                   "ablauf": "direkt",    "intervall": None, "laeuft_nicht_ab": False},
-    "EH":                     {"anzeige": "EH",                    "ablauf": "intervall", "intervall": 1,    "laeuft_nicht_ab": False},
+    "EH":                     {"anzeige": "EH",                    "ablauf": "intervall", "intervall": 2,    "laeuft_nicht_ab": False},
     "Refresher":              {"anzeige": "Refresher",             "ablauf": "intervall", "intervall": 1,    "laeuft_nicht_ab": False},
     "Aerztl_Untersuchung":    {"anzeige": "Ärztl. Untersuchung",  "ablauf": "direkt",    "intervall": None, "laeuft_nicht_ab": True},
     "Fuehrerschein_Kont":     {"anzeige": "Führerschein Kontrolle","ablauf": "einmalig",  "intervall": None, "laeuft_nicht_ab": True},
@@ -628,8 +628,8 @@ def _korrigiere_eh_intervall():
                 d = _parse_datum(dat_str)
                 if d is None:
                     continue
-                korrekt = _datum_str(date(d.year + 1, d.month, d.day))
-                status = _berechne_status(date(d.year + 1, d.month, d.day), False)
+                korrekt = _datum_str(date(d.year + 2, d.month, d.day))
+                status = _berechne_status(date(d.year + 2, d.month, d.day), False)
                 conn.execute(
                     "UPDATE schulungseintraege SET gueltig_bis=?, status=?, zuletzt_akt=? WHERE id=?",
                     (korrekt, status, now, row_id)
