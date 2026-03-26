@@ -1341,10 +1341,10 @@ class MitarbeiterDokumenteWidget(QWidget):
         self._btn_word_druck.clicked.connect(self._dienstanweisung_word_druck)
         btn_row.addWidget(self._btn_word_druck)
 
-        self._btn_schulung = _btn("🎓  Schulung erfassen", "#2e7d32", "#1b5e20")
-        self._btn_schulung.setToolTip("Neue Schulung/Zertifizierung für einen Mitarbeiter erfassen")
+        self._btn_schulung = _btn("🎓  Schulungen öffnen", "#2e7d32", "#1b5e20")
+        self._btn_schulung.setToolTip("Zum Schulungen-Kalender wechseln")
         self._btn_schulung.setVisible(False)
-        self._btn_schulung.clicked.connect(self._schulung_erfassen)
+        self._btn_schulung.clicked.connect(self._schulung_tab_oeffnen)
         btn_row.addWidget(self._btn_schulung)
 
         btn_row.addStretch()
@@ -2008,6 +2008,14 @@ class MitarbeiterDokumenteWidget(QWidget):
         return self._schulungen_kalender
 
     # ── Schulungen-Tab-Aktionen (durch Kalender abgelöst, Stubs für Compat.) ──
+
+    def _schulung_tab_oeffnen(self):
+        """Schaltet zum Schulungen-Tab (Tab 6) im Haupt-Tab-Widget."""
+        if hasattr(self, '_tabs'):
+            # Tab 6 = Schulungen (0-basiert)
+            schulungen_idx = 6
+            if self._tabs.count() > schulungen_idx:
+                self._tabs.setCurrentIndex(schulungen_idx)
 
     def _schulung_jahre_aktualisieren(self):
         if hasattr(self, '_schulungen_kalender'):
