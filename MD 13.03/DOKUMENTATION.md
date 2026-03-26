@@ -1,8 +1,8 @@
 # Nesk3 – Technische Dokumentation
 
-**Stand:** 21.03.2026 – v3.5.0  
+**Stand:** 26.03.2026 – v3.6.0  
 **Anwendung:** Nesk3 – DRK Flughafen Köln/Bonn  
-**Zweck:** Dienstplan-Verwaltung, Stärkemeldung, Mitarbeiterverwaltung, Einsatzprotokoll, Verspätungs-Meldungen, Telefonnummern-Verzeichnis, PSA-Tracking, Hilfe-Screenshot-Galerie, Passagieranfragen
+**Zweck:** Dienstplan-Verwaltung, Stärkemeldung, Mitarbeiterverwaltung, Einsatzprotokoll, Verspätungs-Meldungen, Telefonnummern-Verzeichnis, PSA-Tracking, Hilfe-Screenshot-Galerie, Passagieranfragen, **Schulungs-Verwaltung**
 
 ---
 
@@ -465,6 +465,35 @@ Alle SQLite-Datenbanken liegen seit **05.03.2026** zentral im Ordner `database S
 ---
 
 ## 9. Änderungshistorie
+
+### 21.03.2026 – v3.5.1 – Tab-Design & Sonderaufgaben
+
+#### 11 GUI-Dateien – Tab-Design-Harmonisierung
+- Einheitliches `#1565a8`-Blau in allen QTabWidget-Stylesheets (ersetzt `#0a6ed1`, `#0a73c4`)
+- Full-Page: `setDocumentMode(True)` + 3px Underline + transparent
+- Nested/Dialog: `#e8ecf0`-Hintergrund + 2px Underline + `#f5f6f7`-Pane
+- Schriftart: `Segoe UI` überall; konsistente Hover-States (`#ccddf5` / `#dde4ec`)
+
+#### `gui/main_window.py` – Fade-Animation
+- `QGraphicsOpacityEffect` + `QPropertyAnimation` (180ms, OutCubic) bei `_navigate()`
+- Neue Imports: `QGraphicsOpacityEffect`, `QPropertyAnimation`, `QEasingCurve`
+
+#### `gui/mitarbeiter.py` – Verwaltung-Reorganisation
+- Tab „Dokumente“ → „🗂️ Verwaltung“, Ausdrucke + Krankmeldungen als Top-Level-Tabs entfernt
+- Nur noch 2 Tabs: Verwaltung | Übersicht
+
+#### `gui/mitarbeiter_dokumente.py` – Sidebar-Kategorien
+- 📁 → ● Bullet Points, Trennlinie, 2 neue Einträge: Ausdrucke + Krankmeldungen
+- Tab 4/5: `DokumentBrowserWidget` für Ausdrucke (`Daten/Vordrucke`) und Krankmeldungen (`03_Krankmeldungen`)
+- `_zeige_sonderkategorie()` – zeigt nur den gewählten Browser-Tab
+
+#### `gui/sonderaufgaben.py` – Ordner & Wiederherstellen
+- Treeview: „Gespeicherte Aufgaben“ → „Dienstpläne“
+- „Ordner öffnen“-Button → `Backup Data/Dokumente/Sonderaufgaben`
+- „Wiederherstellen“-Button: `QInputDialog.getItem()` mit allen gespeicherten Dateien
+- `_load_from_excel()`: liest Aufgaben, Service Point C72, Bemerkung aus gespeicherter .xlsx
+
+---
 
 ### 21.03.2026 – v3.5.0 – Passagieranfragen-Modul
 

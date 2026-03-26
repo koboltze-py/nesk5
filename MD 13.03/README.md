@@ -3,8 +3,13 @@
 **DRK Flughafen Köln – Erste-Hilfe-Station**  
 Dienstplan-Verwaltung, Stärkemeldung und Mitarbeiterverwaltung
 
-**Version:** v3.5.1 (21.03.2026)  
-**Module:** Dashboard · Mitarbeiter · Dienstliches · Aufgaben Tag/Nacht · Dienstplan · Übergabe · Fahrzeuge · Code 19 · **Telefonnummern** · Backup · Einstellungen · Hilfe · **Passagieranfragen**
+**Version:** v3.6.0 (26.03.2026)  
+**Module:** Dashboard · Mitarbeiter · Dienstliches · Aufgaben Tag/Nacht · Dienstplan · Übergabe · Fahrzeuge · Code 19 · **Telefonnummern** · Backup · Einstellungen · Hilfe · Passagieranfragen · **Schulungen**
+
+### Neu in v3.6.0
+- **Schulungen – Mitarbeiter-Liste** (neuer Tab neben Kalender): Suche nach Name, Filter nach Status & Schulungstyp; Matrix EH/Refresher/ZÜP/Ärztl./FS-K. mit Farbkodierung; Mitarbeiter ohne Einträge gesondert grau
+- **Schulungen – Detailansicht**: Doppelklick auf MA → alle 14 Schulungstypen; fehlende Einträge leer/grau
+- **Schulungen – Datum bearbeiten**: ✏️-Button oder Doppelklick je Schulungstyp → Datumspicker, automatische Gültig-bis-Berechnung, direktes Speichern in DB
 
 ### Neu in v3.5.1
 - **Tab-Design harmonisiert**: Alle 11 GUI-Dateien nutzen einheitliches `#1565a8`-Blau, konsistente 3px/2px Underlines, Segoe UI, Hover-States

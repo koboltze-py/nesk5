@@ -5,6 +5,35 @@ Format: `[Datum] Beschreibung – betroffene Dateien`
 
 ---
 
+## 26.03.2026 – v3.6.0
+
+### Schulungen-Modul – Mitarbeiter-Liste, Suche/Filter und Datum-Bearbeitung
+
+#### `functions/schulungen_db.py`
+- Neue Funktion `lade_mitarbeiter_mit_schulungen()`: Alle Mitarbeiter mit aktuellsten Schulungseinträgen pro Typ
+- DB-Reset + Neu-Import aus Excel (176 Mitarbeiter, 0 Duplikate)
+
+#### `gui/schulungen_kalender.py`
+- **Neuer Tab „👥 Mitarbeiter-Liste"** neben dem Kalender-Tab:
+  - Freitextsuche nach Name (mit ✕-Löschen)
+  - Status-Filter: Alle / Abgelaufen / ≤1 Mon. / ≤2 Mon. / ≤3 Mon. / OK / Kein Eintrag
+  - Schulungs-Filter: alle 14 Schulungstypen einzeln wählbar
+  - Matrix-Tabelle: EH, Refresher, ZÜP, Ärztl., FS-K. mit Farbkodierung
+  - Mitarbeiter ohne Einträge grau ans Ende sortiert, Anzahl in Statusleiste
+- **`_MitarbeiterDetailDialog`** (Doppelklick auf MA):
+  - Alle 14 Schulungstypen in einer Tabelle
+  - Fehlende Einträge grau / leer (keine Fehlinformation)
+  - Warnung wenn MA überhaupt keine Einträge hat
+- **`_SchulungBearbeitenDialog`** (✏️-Button oder Doppelklick pro Zeile):
+  - Datum-Picker „Absolviert am" + automatische Berechnung von „Gültig bis"
+  - `intervall`-Typen (EH +2J, Refresher +1J): Gültig-bis auto-berechnet
+  - `direkt`-Typen (ZÜP, Ärztl.): manuelles Gültig-bis-Feld
+  - `einmalig`-Typen: kein Ablaufdatum
+  - Speichert direkt per UPDATE/INSERT in `schulungseintraege`
+  - Status wird automatisch neu berechnet; Dialog + Liste aktualisieren sofort
+
+---
+
 ## 21.03.2026 – v3.5.1
 
 ### Tab-Design – Harmonisierung aller GUI-Tabs
