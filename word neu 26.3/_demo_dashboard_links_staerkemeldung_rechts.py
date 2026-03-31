@@ -115,6 +115,7 @@ def _para(cell, text, bold=False, size=9, fg="000000",
     p.paragraph_format.space_before = Pt(sb)
     r = p.add_run(str(text))
     r.bold = bold; r.font.size = Pt(size); r.font.color.rgb = _rgb(fg)
+    r.font.name = "Aptos"
     return p
 
 def _trenn(cell, hx, oben=False):
@@ -146,8 +147,8 @@ def _zeitgruppen_para(cell, gruppen: dict, size=9.5):
         pPr.append(ind)
         p.paragraph_format.space_before = Pt(0)
         p.paragraph_format.space_after  = Pt(4)  # Zeilenabstand zwischen Zeitgruppen
-        rz = p.add_run(f"{zeit}\t"); rz.font.size = Pt(size)
-        rn = p.add_run(" / ".join(namen)); rn.font.size = Pt(size)
+        rz = p.add_run(f"{zeit}\t"); rz.font.size = Pt(size); rz.font.name = "Aptos"
+        rn = p.add_run(" / ".join(namen)); rn.font.size = Pt(size); rn.font.name = "Aptos"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -181,16 +182,16 @@ def erstelle_demo():
     tp = ht.rows[0].cells[1].paragraphs[0]
     tp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     r1 = tp.add_run("Deutsches Rotes Kreuz Kreisverband Köln e.V.\n")
-    r1.font.size = Pt(12); r1.font.bold = True
+    r1.font.size = Pt(12); r1.font.bold = True; r1.font.name = "Aptos"
     r2 = tp.add_run("Unfallhilfsstelle und Betreuungsstelle · Flughafen Köln/Bonn")
-    r2.font.size = Pt(11)
+    r2.font.size = Pt(11); r2.font.name = "Aptos"
     hdr.add_paragraph("_" * 90)
 
     # Fußzeile
     ftr   = doc.sections[0].footer
     fp    = ftr.paragraphs[0]; fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
     fr    = fp.add_run(f"☎ {TEL}   |   ✉ {MAIL}   |   Stationsleitung: {STATIONSLT}")
-    fr.font.size = Pt(11); fr.font.color.rgb = _rgb("777777")
+    fr.font.size = Pt(11); fr.font.name = "Aptos"; fr.font.color.rgb = _rgb("777777")
 
     # ── Haupt-Tabelle: 2 Spalten ─────────────────────────────────────────────
     L_W = Cm(5.5)    # Links  – Dashboard-Panel (schmal)
@@ -219,26 +220,26 @@ def erstelle_demo():
     # ══════════════════════════════════════════════════════════════════════════
 
     # Org-Info (kompakter wegen schmaler Spalte)
-    _para(lc, "Deutsches Rotes Kreuz", bold=True, size=11, fg="1A3460",
+    _para(lc, "Deutsches Rotes Kreuz", bold=True, size=11, fg="000000",
           align="center", sb=2)
-    _para(lc, "Kreisverband Köln e.V.", size=10, fg="1A3460", align="center")
-    _para(lc, STATION, size=9, fg="666666", align="center")
-    _para(lc, TEL, bold=True, size=10, fg="1A3460", align="center", sa=1)
+    _para(lc, "Kreisverband Köln e.V.", size=10, fg="000000", align="center")
+    _para(lc, STATION, size=9, fg="000000", align="center")
+    _para(lc, TEL, bold=True, size=10, fg="000000", align="center", sa=1)
 
     _trenn(lc, "1565a8")
 
     # Datum
-    _para(lc, f"Datum:  {DATUM}", bold=True, size=12, fg="1A3460",
+    _para(lc, f"Datum:  {DATUM}", bold=True, size=12, fg="000000",
           align="center", sb=2, sa=2)
 
     _trenn(lc, "1565a8")
 
     # Kennzahlen  ✦ Label \n WERT
     kz = [
-        ("✦ Betreuungen (2026)",    f"{BET_JAHR:,}".replace(",","."), "444444", "1565a8"),
-        ("✦ Betreuungen (Vortag)",  str(BET_VORT),                   "444444", "1A3460"),
-        ("✦ Einsätze SL",            str(EINZ_SL),                    "444444", "1565a8"),
-        ("✦ PAX gestern",            f"{PAX_EINZEL:,}".replace(",","."), "444444", "0A7040"),
+        ("✦ Betreuungen (2026)",   f"{BET_JAHR:,}".replace(",","."), "000000", "000000"),
+        ("✦ Betreuungen (Vortag)", str(BET_VORT),                   "000000", "000000"),
+        ("✦ Einsätze SL",            str(EINZ_SL),                    "000000", "000000"),
+        ("✦ PAX gestern",           f"{PAX_EINZEL:,}".replace(",","."), "000000", "000000"),
     ]
     for lbl, val, lbl_fg, val_fg in kz:
         p = lc.add_paragraph()
@@ -246,16 +247,18 @@ def erstelle_demo():
         p.paragraph_format.space_before = Pt(2)
         p.paragraph_format.space_after  = Pt(0)
         r1 = p.add_run(f"{lbl}\n"); r1.font.size = Pt(9.5); r1.font.color.rgb = _rgb(lbl_fg)
+        r1.bold = True; r1.font.name = "Aptos"
         r2 = p.add_run(val)
-        r2.bold = True; r2.font.size = Pt(14); r2.font.color.rgb = _rgb(val_fg)
+        r2.bold = False; r2.font.size = Pt(14); r2.font.color.rgb = _rgb(val_fg)
+        r2.font.name = "Aptos"
 
     # Schichtleiter Tag + Nacht im Dashboard
     _trenn(lc, "1565a8", oben=True)
-    _para(lc, "SCHICHTLEITER", bold=True, size=9.5, fg="1565a8", align="center", sb=1)
-    _para(lc, f"Tag:   {SCHICHTL_TAG[0]}",   size=10, fg="1A3460", align="center", sb=0)
-    _para(lc, SCHICHTL_TAG[1],               size=9.5, fg="2A4A7F", align="center", sa=0)
-    _para(lc, f"Nacht: {SCHICHTL_NACHT[0]}", size=10, fg="1A3460", align="center", sb=0)
-    _para(lc, SCHICHTL_NACHT[1],                size=9.5, fg="2A4A7F", align="center", sa=1)
+    _para(lc, "SCHICHTLEITER", bold=True, size=9.5, fg="000000", align="center", sb=1)
+    _para(lc, f"Tag:   {SCHICHTL_TAG[0]}",   size=10, fg="000000", align="center", sb=0)
+    _para(lc, SCHICHTL_TAG[1],               size=9.5, fg="000000", align="center", sa=0)
+    _para(lc, f"Nacht: {SCHICHTL_NACHT[0]}", size=10, fg="000000", align="center", sb=0)
+    _para(lc, SCHICHTL_NACHT[1],             size=9.5, fg="000000", align="center", sa=1)
 
     _trenn(lc, "1565a8", oben=True)
 
@@ -265,7 +268,8 @@ def erstelle_demo():
     p_bul_hdr.paragraph_format.space_before = Pt(2)
     p_bul_hdr.paragraph_format.space_after  = Pt(1)
     rb = p_bul_hdr.add_run("BULMOR – FAHRZEUGSTATUS")
-    rb.bold = True; rb.font.size = Pt(10); rb.font.color.rgb = _rgb("1A3460")
+    rb.bold = True; rb.font.size = Pt(10); rb.font.color.rgb = _rgb("000000")
+    rb.font.name = "Aptos"
 
     # B1–B5 als Tabelle
     btbl = lc.add_table(rows=2, cols=5); btbl.style = "Table Grid"
@@ -281,12 +285,13 @@ def erstelle_demo():
         pt.paragraph_format.space_before = Pt(1); pt.paragraph_format.space_after = Pt(0)
         rt = pt.add_run(f"●\nB{i+1}")
         rt.bold = True; rt.font.size = Pt(10); rt.font.color.rgb = _rgb(WEISS)
+        rt.font.name = "Aptos"
         # Untere Zeile: Status-Text
         pb = cb.paragraphs[0]; pb.alignment = WD_ALIGN_PARAGRAPH.CENTER
         pb.paragraph_format.space_before = Pt(0); pb.paragraph_format.space_after = Pt(1)
         status = "Dienst" if aktiv else "Aus"
         rb2 = pb.add_run(status)
-        rb2.font.size = Pt(10)
+        rb2.font.size = Pt(10); rb2.font.name = "Aptos"
         rb2.font.color.rgb = _rgb(FC_HEX if aktiv else "CC3333")
 
     # Gesamt-Box – kein farbiger Hintergrund
@@ -295,7 +300,8 @@ def erstelle_demo():
     pg   = gc.paragraphs[0]; pg.alignment = WD_ALIGN_PARAGRAPH.CENTER
     pg.paragraph_format.space_before = Pt(2); pg.paragraph_format.space_after = Pt(2)
     rg   = pg.add_run(f"Gesamt: {BUL_ANZ}/5  ◇  {LBL_BUL}")
-    rg.bold = True; rg.font.size = Pt(10.5); rg.font.color.rgb = _rgb("1A3460")
+    rg.bold = True; rg.font.size = Pt(10.5); rg.font.color.rgb = _rgb("000000")
+    rg.font.name = "Aptos"
 
     # ══════════════════════════════════════════════════════════════════════════
     # RECHTE SPALTE – klassische Stärkemeldung (StaerkemeldungExport-Stil)
@@ -306,7 +312,8 @@ def erstelle_demo():
     p_hdr.paragraph_format.space_before = Pt(1)
     p_hdr.paragraph_format.space_after  = Pt(1)
     rh = p_hdr.add_run(f"STÄRKEMELDUNG  ·  {DATUM}")
-    rh.bold = True; rh.font.size = Pt(13); rh.font.color.rgb = _rgb("1A3460")
+    rh.bold = True; rh.font.size = Pt(13); rh.font.color.rgb = _rgb("000000")
+    rh.font.name = "Aptos"
     # Leerabsatz nach Header (sa=1, sb=1) – wie in v8
     p_sep0 = rc.add_paragraph()
     p_sep0.paragraph_format.space_before = Pt(1); p_sep0.paragraph_format.space_after = Pt(1)
@@ -316,7 +323,7 @@ def erstelle_demo():
     p_zr.paragraph_format.space_before = Pt(0)
     p_zr.paragraph_format.space_after  = Pt(1)
     rz   = p_zr.add_run(f"Zeitraum:\t{DATUM} bis {DATUM}")
-    rz.font.size = Pt(12); rz.font.bold = True
+    rz.font.size = Pt(12); rz.font.bold = True; rz.font.name = "Aptos"
     # Leerabsatz nach Zeitraum (sa=1, sb=0) – wie in v8
     p_sep1 = rc.add_paragraph()
     p_sep1.paragraph_format.space_before = Pt(0); p_sep1.paragraph_format.space_after = Pt(1)
@@ -326,6 +333,7 @@ def erstelle_demo():
     ph_sl.paragraph_format.space_before = Pt(1)
     ph_sl.paragraph_format.space_after  = Pt(0)
     rh_sl = ph_sl.add_run("Schichtleiter"); rh_sl.font.bold = True; rh_sl.font.size = Pt(12)
+    rh_sl.font.name = "Aptos"
     # Leerabsatz nach Schichtleiter-Heading (sa=0, sb=1) – wie in v8
     p_sep2 = rc.add_paragraph()
     p_sep2.paragraph_format.space_before = Pt(1); p_sep2.paragraph_format.space_after = Pt(0)
@@ -339,8 +347,9 @@ def erstelle_demo():
         ind = OxmlElement("w:ind"); ind.set(qn("w:left"), "2550"); ind.set(qn("w:hanging"), "2550")
         pPr.append(ind)
         p_sl.paragraph_format.space_before = Pt(0); p_sl.paragraph_format.space_after = Pt(0)
-        r_pf = p_sl.add_run(f"{prefix}\t"); r_pf.font.size = Pt(12)
-        r_nm = p_sl.add_run(f"{name}  ({zeit})"); r_nm.font.size = Pt(12); r_nm.bold = True
+        r_pf = p_sl.add_run(f"{prefix}\t"); r_pf.font.size = Pt(12); r_pf.font.name = "Aptos"
+        r_nm = p_sl.add_run(f"{name}  ({zeit})"); r_nm.font.size = Pt(12); r_nm.bold = False
+        r_nm.font.name = "Aptos"
 
     rc.add_paragraph().paragraph_format.space_after = Pt(0)
 
@@ -349,7 +358,7 @@ def erstelle_demo():
     ph.paragraph_format.space_before = Pt(1)
     ph.paragraph_format.space_after  = Pt(0)
     rh = ph.add_run("Disposition"); rh.font.bold = True; rh.font.size = Pt(12)
-    # Leerabsatz nach Disposition-Heading (sa=0, sb=1) – wie in v8
+    rh.font.name = "Aptos"
     p_sep3 = rc.add_paragraph()
     p_sep3.paragraph_format.space_before = Pt(1); p_sep3.paragraph_format.space_after = Pt(0)
 
@@ -362,6 +371,7 @@ def erstelle_demo():
     ph2.paragraph_format.space_before = Pt(1)
     ph2.paragraph_format.space_after  = Pt(0)
     rh2 = ph2.add_run("Behindertenbetreuer"); rh2.font.bold = True; rh2.font.size = Pt(12)
+    rh2.font.name = "Aptos"
     # Leerabsatz nach Behindertenbetreuer-Heading (sa=0, sb=1) – wie in v8
     p_sep4 = rc.add_paragraph()
     p_sep4.paragraph_format.space_before = Pt(1); p_sep4.paragraph_format.space_after = Pt(0)
@@ -375,6 +385,7 @@ def erstelle_demo():
     ph_pax.paragraph_format.space_before = Pt(1)
     ph_pax.paragraph_format.space_after  = Pt(0)
     rh_pax = ph_pax.add_run("PAX gestern"); rh_pax.font.bold = True; rh_pax.font.size = Pt(12)
+    rh_pax.font.name = "Aptos"
     # Leerabsatz nach PAX-Heading (sa=0, sb=1) – wie in v8
     p_sep5 = rc.add_paragraph()
     p_sep5.paragraph_format.space_before = Pt(1); p_sep5.paragraph_format.space_after = Pt(0)
@@ -386,12 +397,12 @@ def erstelle_demo():
     ind_p  = OxmlElement("w:ind"); ind_p.set(qn("w:left"), "2550"); ind_p.set(qn("w:hanging"), "2550")
     pPr_p.append(ind_p)
     p_paxz.paragraph_format.space_before = Pt(0); p_paxz.paragraph_format.space_after = Pt(0)
-    rp1 = p_paxz.add_run(f"{DATUM}\t"); rp1.font.size = Pt(12)
+    rp1 = p_paxz.add_run(f"{DATUM}\t"); rp1.font.size = Pt(12); rp1.font.name = "Aptos"
     rp2 = p_paxz.add_run(f"{PAX_EINZEL:,}".replace(",", ".") + " Passagiere")
-    rp2.font.size = Pt(12); rp2.bold = True
+    rp2.font.size = Pt(12); rp2.bold = False; rp2.font.name = "Aptos"
 
     # ── Speichern ─────────────────────────────────────────────────────────────
-    out = ZIEL / f"DEMO_Dashboard_v9_{DATUM.replace('.','')}.docx"
+    out = ZIEL / f"DEMO_Dashboard_v10_{DATUM.replace('.','')}.docx"
     doc.save(str(out))
     print(f"[OK] Gespeichert: {out}")
     return str(out)
