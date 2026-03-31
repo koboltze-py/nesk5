@@ -144,6 +144,8 @@ def _zeitgruppen_para(cell, gruppen: dict, size=9.5):
         ind = OxmlElement("w:ind")
         ind.set(qn("w:left"), "2550"); ind.set(qn("w:hanging"), "2550")
         pPr.append(ind)
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after  = Pt(4)  # Zeilenabstand zwischen Zeitgruppen
         rz = p.add_run(f"{zeit}\t"); rz.font.size = Pt(size)
         rn = p.add_run(" / ".join(namen)); rn.font.size = Pt(size)
 
@@ -299,9 +301,12 @@ def erstelle_demo():
     # RECHTE SPALTE – klassische Stärkemeldung (StaerkemeldungExport-Stil)
     # ══════════════════════════════════════════════════════════════════════════
 
-    # Sub-Header
-    _hdr_box(rc, f"STÄRKEMELDUNG  ·  {DATUM}", BG_MITTEL, fg=HE, w=R_W, sb=2, sa=2)
-    rc.add_paragraph().paragraph_format.space_after = Pt(2)
+    # Sub-Header (kein farbiger Block)
+    p_hdr = rc.add_paragraph()
+    p_hdr.paragraph_format.space_before = Pt(4)
+    p_hdr.paragraph_format.space_after  = Pt(4)
+    rh = p_hdr.add_run(f"STÄRKEMELDUNG  ·  {DATUM}")
+    rh.bold = True; rh.font.size = Pt(12); rh.font.color.rgb = _rgb("1A3460")
 
     # Zeitraum-Zeile
     p_zr = rc.add_paragraph()
@@ -368,7 +373,7 @@ def erstelle_demo():
     rp2.font.size = Pt(10.5); rp2.bold = True
 
     # ── Speichern ─────────────────────────────────────────────────────────────
-    out = ZIEL / f"DEMO_Dashboard_schmal_links_v4_{DATUM.replace('.','')}.docx"
+    out = ZIEL / f"DEMO_Dashboard_kein_hintergrund_{DATUM.replace('.','')}.docx"
     doc.save(str(out))
     print(f"[OK] Gespeichert: {out}")
     return str(out)
