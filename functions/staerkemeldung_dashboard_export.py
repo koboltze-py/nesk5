@@ -59,6 +59,7 @@ def _para(cell, text, bold=False, size=9, fg="000000", align="left", sa=0, sb=0)
                  WD_ALIGN_PARAGRAPH.LEFT)
     p.paragraph_format.space_after=Pt(sa); p.paragraph_format.space_before=Pt(sb)
     r=p.add_run(str(text)); r.bold=bold; r.font.size=Pt(size); r.font.color.rgb=_rgb(fg)
+    r.font.name="Aptos"
     return p
 
 def _trenn(cell, hx, oben=False):
@@ -94,9 +95,9 @@ def _zeitgruppen_para(cell, gruppen, size=9.5):
         tabs.append(tab); pPr.append(tabs)
         ind=OxmlElement("w:ind"); ind.set(qn("w:left"),"2550"); ind.set(qn("w:hanging"),"2550")
         pPr.append(ind)
-        p.paragraph_format.space_before=Pt(0); p.paragraph_format.space_after=Pt(0)
-        rz=p.add_run(f"{zeit}\t"); rz.font.size=Pt(size)
-        rn=p.add_run(" / ".join(namen)); rn.font.size=Pt(size)
+        p.paragraph_format.space_before=Pt(0); p.paragraph_format.space_after=Pt(4)
+        rz=p.add_run(f"{zeit}\t"); rz.font.size=Pt(size); rz.font.name="Aptos"
+        rn=p.add_run(" / ".join(namen)); rn.font.size=Pt(size); rn.font.name="Aptos"
 
 def _bul_farben(n):
     if n<=2: return "FF3333","KRITISCH"
@@ -198,9 +199,9 @@ class StaerkemeldungDashboardExport:
             lp.add_run().add_picture(str(_LOGO),width=Inches(1.0))
         tp=ht.rows[0].cells[1].paragraphs[0]; tp.alignment=WD_ALIGN_PARAGRAPH.RIGHT
         r1=tp.add_run("Deutsches Rotes Kreuz Kreisverband Koeln e.V.\n")
-        r1.font.size=Pt(9); r1.font.bold=True
+        r1.font.size=Pt(9); r1.font.bold=True; r1.font.name="Aptos"
         r2=tp.add_run("Unfallhilfsstelle und Betreuungsstelle - Flughafen Koeln/Bonn")
-        r2.font.size=Pt(8)
+        r2.font.size=Pt(8); r2.font.name="Aptos"
         hdr.add_paragraph("_"*90)
 
     def _add_footer(self,doc):
@@ -208,7 +209,7 @@ class StaerkemeldungDashboardExport:
         fp.alignment=WD_ALIGN_PARAGRAPH.CENTER
         sl=f"   |   Stationsleitung: {self._stationslt}" if self._stationslt else ""
         fr=fp.add_run(f"Tel: {TEL}   |   {MAIL}{sl}")
-        fr.font.size=Pt(8); fr.font.color.rgb=_rgb("777777")
+        fr.font.size=Pt(8); fr.font.color.rgb=_rgb("777777"); fr.font.name="Aptos"
 
     def _fill_body(self,doc,warnungen):
         L_W=Cm(5.5); R_W=Cm(14.0)
@@ -216,7 +217,6 @@ class StaerkemeldungDashboardExport:
         lc=main.cell(0,0); rc=main.cell(0,1)
         lc.width=L_W; rc.width=R_W
         _no_border(lc); _no_border(rc)
-        _set_bg(lc,BG_DUNKEL)
         lc.vertical_alignment=WD_ALIGN_VERTICAL.TOP
         rc.vertical_alignment=WD_ALIGN_VERTICAL.TOP
         # Seitenhoehe: h=16838 top=1020 bot=454 → Brutto-Koerper=15364 twips.
@@ -251,82 +251,81 @@ class StaerkemeldungDashboardExport:
         return None
 
     def _build_links(self,lc):
-        datum_str=self._von.strftime("%d.%m.%Y")
-        sl_tag=self._find_sl(False); sl_nacht=self._find_sl(True)
-        _para(lc,"Deutsches Rotes Kreuz",bold=True,size=8.5,fg=WEISS,align="center",sb=2)
-        _para(lc,"Kreisverband Koeln e.V.",size=7,fg=HE,align="center")
-        _para(lc,"Erste-Hilfe-Station - Flughafen Koeln/Bonn",size=6,fg="AAAAAA",align="center")
-        _para(lc,TEL,bold=True,size=7,fg=HE,align="center",sa=1)
-        _trenn(lc,AZ)
-        _para(lc,f"Datum:  {datum_str}",bold=True,size=10,fg=WEISS,align="center",sb=2,sa=2)
+        _para(lc,"Deutsches Rotes Kreuz",bold=True,size=10.5,fg="000000",align="center",sb=2)
+        _para(lc,"Kreisverband Koeln e.V.",size=9,fg="000000",align="center")
+        _para(lc,"Erste-Hilfe-Station - Flughafen Koeln/Bonn",size=8,fg="000000",align="center")
+        _para(lc,TEL,bold=True,size=9,fg="000000",align="center",sa=1)
         _trenn(lc,AZ)
         try:
             from database.pax_db import lade_jahres_pax,lade_tages_pax,lade_jahres_einsaetze,lade_tages_einsaetze
             from datetime import timedelta
             pax_jahr=lade_jahres_pax(self._von.year)
             pax_gestern=lade_tages_pax((self._von-timedelta(days=1)).strftime("%Y-%m-%d"))
-            einsaetze_jahr=lade_jahres_einsaetze(self._von.year)
             einsaetze_gestern=lade_tages_einsaetze((self._von-timedelta(days=1)).strftime("%Y-%m-%d"))
         except Exception:
-            pax_jahr=0; pax_gestern=0; einsaetze_jahr=0; einsaetze_gestern=0
-        for lbl,val,lbl_fg,val_fg in [
-            ("+ PAX aktuelles Jahr", f"{pax_jahr:,}".replace(",","."),  "FFFFFF",AZ),
-            ("+ PAX Vortag",         f"{pax_gestern:,}".replace(",",".") if pax_gestern else "-",
-                                                                          HE,WEISS),
-            ("+ PAX heute",          f"{self._pax:,}".replace(",","."), HE,"AAFFCC"),
+            pax_jahr=0; pax_gestern=0; einsaetze_gestern=0
+        for lbl,val in [
+            ("+ PAX aktuelles Jahr", f"{pax_jahr:,}".replace(",",".")),
+            ("+ PAX Vortag",         f"{pax_gestern:,}".replace(",",".") if pax_gestern else "-"),
+            ("+ PAX heute",          f"{self._pax:,}".replace(",",".")),
         ]:
             p=lc.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.CENTER
             p.paragraph_format.space_before=Pt(2); p.paragraph_format.space_after=Pt(0)
-            r1=p.add_run(f"{lbl}\n"); r1.font.size=Pt(6.5); r1.font.color.rgb=_rgb(lbl_fg)
-            r2=p.add_run(val); r2.bold=True; r2.font.size=Pt(11); r2.font.color.rgb=_rgb(val_fg)
+            r1=p.add_run(f"{lbl}\n"); r1.font.size=Pt(8.5); r1.font.color.rgb=_rgb("000000")
+            r1.bold=True; r1.font.name="Aptos"
+            r2=p.add_run(val); r2.bold=False; r2.font.size=Pt(13); r2.font.color.rgb=_rgb("000000")
+            r2.font.name="Aptos"
         _trenn(lc,AZ)
-        for lbl,val,lbl_fg,val_fg in [
-            ("SL-Einsaetze Vortag",    str(einsaetze_gestern) if einsaetze_gestern else "-",
-                                                                  HE,WEISS),
-            ("SL-Einsaetze heute",     str(self._einsaetze),  HE,"AAFFCC"),
+        for lbl,val in [
+            ("SL-Einsaetze Vortag", str(einsaetze_gestern) if einsaetze_gestern else "-"),
+            ("SL-Einsaetze heute",  str(self._einsaetze)),
         ]:
             p=lc.add_paragraph(); p.alignment=WD_ALIGN_PARAGRAPH.CENTER
             p.paragraph_format.space_before=Pt(2); p.paragraph_format.space_after=Pt(0)
-            r1=p.add_run(f"{lbl}\n"); r1.font.size=Pt(6.5); r1.font.color.rgb=_rgb(lbl_fg)
-            r2=p.add_run(val); r2.bold=True; r2.font.size=Pt(11); r2.font.color.rgb=_rgb(val_fg)
-        _trenn(lc,AZ,oben=True)
-        _para(lc,"SCHICHTLEITER",bold=True,size=6.5,fg=AZ,align="center",sb=1)
-        for label,sl in [("Tag: ",sl_tag),("Nacht:",sl_nacht)]:
-            if sl:
-                _para(lc,f"{label}  {sl[0]}",size=7.5,fg=WEISS,align="center",sb=0)
-                _para(lc,sl[1],size=6.5,fg=HE,align="center",sa=0)
-        if not sl_tag and not sl_nacht:
-            _para(lc,"-",size=8,fg=HE,align="center")
+            r1=p.add_run(f"{lbl}\n"); r1.font.size=Pt(8.5); r1.font.color.rgb=_rgb("000000")
+            r1.bold=True; r1.font.name="Aptos"
+            r2=p.add_run(val); r2.bold=False; r2.font.size=Pt(13); r2.font.color.rgb=_rgb("000000")
+            r2.font.name="Aptos"
         _trenn(lc,AZ,oben=True)
         fc_hex,lbl_bul=_bul_farben(self._bul_aktiv)
-        _para(lc,"BULMOR - FAHRZEUGSTATUS",bold=True,size=6.5,fg=AZ,align="center",sb=1)
+        _para(lc,"BULMOR - FAHRZEUGSTATUS",bold=True,size=8.5,fg="000000",align="center",sb=1)
         bul_tbl=lc.add_table(rows=1,cols=self.BULMOR_GESAMT); bul_tbl.style="Table Grid"
         for i in range(self.BULMOR_GESAMT):
             c=bul_tbl.cell(0,i); _set_bg(c,fc_hex if i<self._bul_aktiv else "444444")
             p=c.add_paragraph(f"B{i+1}"); p.alignment=WD_ALIGN_PARAGRAPH.CENTER
             p.paragraph_format.space_before=Pt(1); p.paragraph_format.space_after=Pt(1)
-            p.runs[0].font.size=Pt(7); p.runs[0].font.color.rgb=_rgb(WEISS); p.runs[0].bold=True
+            p.runs[0].font.size=Pt(9); p.runs[0].font.color.rgb=_rgb(WEISS)
+            p.runs[0].bold=True; p.runs[0].font.name="Aptos"
         ges=lc.add_paragraph(); ges.alignment=WD_ALIGN_PARAGRAPH.CENTER
         ges.paragraph_format.space_before=Pt(1); ges.paragraph_format.space_after=Pt(0)
         r1=ges.add_run(f"{self._bul_aktiv}/{self.BULMOR_GESAMT}  ")
-        r1.bold=True; r1.font.size=Pt(11); r1.font.color.rgb=_rgb(fc_hex)
-        r2=ges.add_run(lbl_bul); r2.font.size=Pt(8); r2.font.color.rgb=_rgb(fc_hex)
+        r1.bold=True; r1.font.size=Pt(13); r1.font.color.rgb=_rgb(fc_hex); r1.font.name="Aptos"
+        r2=ges.add_run(lbl_bul); r2.font.size=Pt(10); r2.font.color.rgb=_rgb(fc_hex); r2.font.name="Aptos"
 
     def _build_rechts(self,rc):
         datum_str=self._von.strftime("%d.%m.%Y"); bis_str=self._bis.strftime("%d.%m.%Y")
         sl_tag=self._find_sl(False); sl_nacht=self._find_sl(True)
         ph=rc.add_paragraph(); ph.alignment=WD_ALIGN_PARAGRAPH.CENTER
         ph.paragraph_format.space_before=Pt(2); ph.paragraph_format.space_after=Pt(4)
-        rh=ph.add_run("Stärkemeldung"); rh.font.bold=True; rh.font.size=Pt(14)
-        pz=rc.add_paragraph(); pz.alignment=WD_ALIGN_PARAGRAPH.CENTER
+        rh=ph.add_run("STÄRKEMELDUNG"); rh.font.bold=True; rh.font.size=Pt(13)
+        rh.font.color.rgb=_rgb("000000"); rh.font.name="Aptos"
+        pz=rc.add_paragraph()
         pz.paragraph_format.space_before=Pt(0); pz.paragraph_format.space_after=Pt(6)
-        zeitraum=datum_str if datum_str==bis_str else f"{datum_str} - {bis_str}"
-        rz=pz.add_run(zeitraum); rz.font.size=Pt(11); rz.font.bold=True
+        pPr_pz=pz._p.get_or_add_pPr()
+        tabs_pz=OxmlElement("w:tabs"); tab_pz=OxmlElement("w:tab")
+        tab_pz.set(qn("w:val"),"left"); tab_pz.set(qn("w:pos"),"2550")
+        tabs_pz.append(tab_pz); pPr_pz.append(tabs_pz)
+        ind_pz=OxmlElement("w:ind"); ind_pz.set(qn("w:left"),"2550"); ind_pz.set(qn("w:hanging"),"2550")
+        pPr_pz.append(ind_pz)
+        zeitraum=datum_str if datum_str==bis_str else f"{datum_str} bis {bis_str}"
+        rz_lbl=pz.add_run("Zeitraum:\t"); rz_lbl.font.size=Pt(11); rz_lbl.font.bold=True; rz_lbl.font.name="Aptos"
+        rz_val=pz.add_run(zeitraum); rz_val.font.size=Pt(11); rz_val.font.bold=False; rz_val.font.name="Aptos"
         if sl_tag or sl_nacht:
             ph_sl=rc.add_paragraph()
             ph_sl.paragraph_format.space_before=Pt(2); ph_sl.paragraph_format.space_after=Pt(1)
             rh_sl=ph_sl.add_run("Schichtleiter"); rh_sl.font.bold=True; rh_sl.font.size=Pt(11)
-            for label,sl in [("Tag:  ",sl_tag),("Nacht:",sl_nacht)]:
+            rh_sl.font.name="Aptos"
+            for sl in [sl_tag, sl_nacht]:
                 if not sl: continue
                 p_sl=rc.add_paragraph(); pPr=p_sl._p.get_or_add_pPr()
                 tabs=OxmlElement("w:tabs"); tab=OxmlElement("w:tab")
@@ -335,13 +334,16 @@ class StaerkemeldungDashboardExport:
                 ind=OxmlElement("w:ind"); ind.set(qn("w:left"),"2550"); ind.set(qn("w:hanging"),"2550")
                 pPr.append(ind)
                 p_sl.paragraph_format.space_before=Pt(0); p_sl.paragraph_format.space_after=Pt(0)
-                r_pf=p_sl.add_run(f"{label}\t"); r_pf.font.size=Pt(10.5)
-                r_nm=p_sl.add_run(f"{sl[0]}  ({sl[1]})"); r_nm.font.size=Pt(10.5); r_nm.bold=True
+                r_pf=p_sl.add_run(f"{sl[1]}\t"); r_pf.font.size=Pt(10.5); r_pf.font.name="Aptos"
+                r_nm=p_sl.add_run(sl[0]); r_nm.font.size=Pt(10.5); r_nm.bold=False
+                r_nm.font.name="Aptos"
             rc.add_paragraph().paragraph_format.space_after=Pt(2)
         ph_d=rc.add_paragraph(); ph_d.paragraph_format.space_before=Pt(2); ph_d.paragraph_format.space_after=Pt(1)
         rh_d=ph_d.add_run("Disposition"); rh_d.font.bold=True; rh_d.font.size=Pt(11)
+        rh_d.font.name="Aptos"
         _zeitgruppen_para(rc,_zeitgruppen(self._dispo,ist_dispo=True))
         rc.add_paragraph().paragraph_format.space_after=Pt(2)
         ph_b=rc.add_paragraph(); ph_b.paragraph_format.space_before=Pt(2); ph_b.paragraph_format.space_after=Pt(1)
         rh_b=ph_b.add_run("Behindertenbetreuer"); rh_b.font.bold=True; rh_b.font.size=Pt(11)
+        rh_b.font.name="Aptos"
         _zeitgruppen_para(rc,_zeitgruppen(self._betreuer))
