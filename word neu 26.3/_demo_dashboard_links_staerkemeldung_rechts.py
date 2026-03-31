@@ -205,8 +205,8 @@ def erstelle_demo():
     rc.vertical_alignment = WD_ALIGN_VERTICAL.TOP
 
     # Zeile exakt auf Seitenhöhe fixieren → kein Seitenumbruch möglich
-    # Höhe aus manuellem Test: 22.91 cm = exakt eine A4-Seite
-    PAGE_H_CM = 22.91
+    # Exakt aus v8-Dokument gemessen: 12689 twips = 22.38 cm
+    PAGE_H_CM = 22.38
     tr = main.rows[0]._tr
     trPr = tr.get_or_add_trPr()
     trH = OxmlElement("w:trHeight")
@@ -373,7 +373,7 @@ def erstelle_demo():
     rp2.font.size = Pt(12); rp2.bold = True
 
     # ── Speichern ─────────────────────────────────────────────────────────────
-    out = ZIEL / f"DEMO_Dashboard_v8_{DATUM.replace('.','')}.docx"
+    out = ZIEL / f"DEMO_Dashboard_final_{DATUM.replace('.','')}.docx"
     doc.save(str(out))
     print(f"[OK] Gespeichert: {out}")
     return str(out)
