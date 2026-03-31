@@ -307,6 +307,9 @@ def erstelle_demo():
     p_hdr.paragraph_format.space_after  = Pt(1)
     rh = p_hdr.add_run(f"STÄRKEMELDUNG  ·  {DATUM}")
     rh.bold = True; rh.font.size = Pt(13); rh.font.color.rgb = _rgb("1A3460")
+    # Leerabsatz nach Header (sa=1, sb=1) – wie in v8
+    p_sep0 = rc.add_paragraph()
+    p_sep0.paragraph_format.space_before = Pt(1); p_sep0.paragraph_format.space_after = Pt(1)
 
     # Zeitraum-Zeile
     p_zr = rc.add_paragraph()
@@ -314,12 +317,18 @@ def erstelle_demo():
     p_zr.paragraph_format.space_after  = Pt(1)
     rz   = p_zr.add_run(f"Zeitraum:\t{DATUM} bis {DATUM}")
     rz.font.size = Pt(12); rz.font.bold = True
+    # Leerabsatz nach Zeitraum (sa=1, sb=0) – wie in v8
+    p_sep1 = rc.add_paragraph()
+    p_sep1.paragraph_format.space_before = Pt(0); p_sep1.paragraph_format.space_after = Pt(1)
 
     # ── Schichtleiter ─────────────────────────────────────────────────────────
     ph_sl = rc.add_paragraph()
     ph_sl.paragraph_format.space_before = Pt(1)
     ph_sl.paragraph_format.space_after  = Pt(0)
     rh_sl = ph_sl.add_run("Schichtleiter"); rh_sl.font.bold = True; rh_sl.font.size = Pt(12)
+    # Leerabsatz nach Schichtleiter-Heading (sa=0, sb=1) – wie in v8
+    p_sep2 = rc.add_paragraph()
+    p_sep2.paragraph_format.space_before = Pt(1); p_sep2.paragraph_format.space_after = Pt(0)
 
     for prefix, (name, zeit) in [("Tag:  ", SCHICHTL_TAG), ("Nacht:", SCHICHTL_NACHT)]:
         p_sl = rc.add_paragraph()
@@ -340,6 +349,9 @@ def erstelle_demo():
     ph.paragraph_format.space_before = Pt(1)
     ph.paragraph_format.space_after  = Pt(0)
     rh = ph.add_run("Disposition"); rh.font.bold = True; rh.font.size = Pt(12)
+    # Leerabsatz nach Disposition-Heading (sa=0, sb=1) – wie in v8
+    p_sep3 = rc.add_paragraph()
+    p_sep3.paragraph_format.space_before = Pt(1); p_sep3.paragraph_format.space_after = Pt(0)
 
     all_dispo = DISPO_TAG + DISPO_NACHT
     _zeitgruppen_para(rc, _grup(all_dispo), size=11.5)
@@ -350,6 +362,9 @@ def erstelle_demo():
     ph2.paragraph_format.space_before = Pt(1)
     ph2.paragraph_format.space_after  = Pt(0)
     rh2 = ph2.add_run("Behindertenbetreuer"); rh2.font.bold = True; rh2.font.size = Pt(12)
+    # Leerabsatz nach Behindertenbetreuer-Heading (sa=0, sb=1) – wie in v8
+    p_sep4 = rc.add_paragraph()
+    p_sep4.paragraph_format.space_before = Pt(1); p_sep4.paragraph_format.space_after = Pt(0)
 
     all_bet = BETREUER_TAG + BETREUER_NACHT
     _zeitgruppen_para(rc, _grup(all_bet), size=11.5)
@@ -360,6 +375,9 @@ def erstelle_demo():
     ph_pax.paragraph_format.space_before = Pt(1)
     ph_pax.paragraph_format.space_after  = Pt(0)
     rh_pax = ph_pax.add_run("PAX gestern"); rh_pax.font.bold = True; rh_pax.font.size = Pt(12)
+    # Leerabsatz nach PAX-Heading (sa=0, sb=1) – wie in v8
+    p_sep5 = rc.add_paragraph()
+    p_sep5.paragraph_format.space_before = Pt(1); p_sep5.paragraph_format.space_after = Pt(0)
     p_paxz = rc.add_paragraph()
     pPr_p  = p_paxz._p.get_or_add_pPr()
     tabs_p = OxmlElement("w:tabs"); tab_p = OxmlElement("w:tab")
@@ -373,7 +391,7 @@ def erstelle_demo():
     rp2.font.size = Pt(12); rp2.bold = True
 
     # ── Speichern ─────────────────────────────────────────────────────────────
-    out = ZIEL / f"DEMO_Dashboard_final_{DATUM.replace('.','')}.docx"
+    out = ZIEL / f"DEMO_Dashboard_v9_{DATUM.replace('.','')}.docx"
     doc.save(str(out))
     print(f"[OK] Gespeichert: {out}")
     return str(out)
