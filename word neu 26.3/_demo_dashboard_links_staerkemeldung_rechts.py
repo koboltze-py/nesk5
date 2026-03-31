@@ -318,6 +318,12 @@ def erstelle_demo():
     p_zr = rc.add_paragraph()
     p_zr.paragraph_format.space_before = Pt(0)
     p_zr.paragraph_format.space_after  = Pt(1)
+    pPr_zr = p_zr._p.get_or_add_pPr()
+    tabs_zr = OxmlElement("w:tabs"); tab_zr = OxmlElement("w:tab")
+    tab_zr.set(qn("w:val"), "left"); tab_zr.set(qn("w:pos"), "2550")
+    tabs_zr.append(tab_zr); pPr_zr.append(tabs_zr)
+    ind_zr = OxmlElement("w:ind"); ind_zr.set(qn("w:left"), "2550"); ind_zr.set(qn("w:hanging"), "2550")
+    pPr_zr.append(ind_zr)
     rz   = p_zr.add_run(f"Zeitraum:\t{DATUM} bis {DATUM}")
     rz.font.size = Pt(12); rz.font.bold = False; rz.font.name = "Aptos"
     # Leerabsatz nach Zeitraum (sa=1, sb=0) – wie in v8
@@ -398,7 +404,7 @@ def erstelle_demo():
     rp2.font.size = Pt(12); rp2.bold = False; rp2.font.name = "Aptos"
 
     # ── Speichern ─────────────────────────────────────────────────────────────
-    out = ZIEL / f"DEMO_Dashboard_v10b_{DATUM.replace('.','')}.docx"
+    out = ZIEL / f"DEMO_Dashboard_v10c_{DATUM.replace('.','')}.docx"
     doc.save(str(out))
     print(f"[OK] Gespeichert: {out}")
     return str(out)
