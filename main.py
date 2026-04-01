@@ -122,6 +122,13 @@ def _taeglich_gemeinsam_backup():
         if result.get('erfolg'):
             erste_zeile = result.get('meldung', '').splitlines()[0]
             print(f"[OK]   Gemeinsam-Backup: {result.get('dateien_count')} Dateien – {erste_zeile}")
+            fehler_liste = result.get('fehler_liste', [])
+            if fehler_liste:
+                print(f"[WARNUNG] Gemeinsam-Backup: {len(fehler_liste)} Datei(en) nicht gesichert:")
+                for f in fehler_liste[:10]:
+                    print(f"          • {f}")
+                if len(fehler_liste) > 10:
+                    print(f"          ... und {len(fehler_liste) - 10} weitere")
         else:
             print(f"[WARNUNG] Gemeinsam-Backup fehlgeschlagen: {result.get('meldung')}")
 
