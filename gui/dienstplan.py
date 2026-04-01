@@ -1,4 +1,4 @@
-"""
+﻿"""
 Dienstplan-Widget
 Schichten anzeigen, hinzufügen, bearbeiten, löschen
 Excel-Import und Word-Export (Stärkemeldung)
@@ -212,7 +212,7 @@ class ExportDialog(QDialog):
 
         fmt_lbl = QLabel("Exportformat:")
         fmt_lbl.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        fmt_lbl.setStyleSheet("color: #333; padding: 2px 0;")
+        fmt_lbl.setStyleSheet("color: #333; padding: 2px 0px;")
         layout.addWidget(fmt_lbl)
 
         self._fmt_gruppe = QButtonGroup(self)
@@ -243,7 +243,7 @@ class ExportDialog(QDialog):
                 "   Haken setzen = vom Export ausschließen"
             )
             sonder_lbl.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-            sonder_lbl.setStyleSheet("color: #555; padding: 2px 0;")
+            sonder_lbl.setStyleSheet("color: #555; padding: 2px 0px;")
             layout.addWidget(sonder_lbl)
 
             scroll = QScrollArea()
@@ -525,7 +525,7 @@ class _DispoZeitenVorschauDialog(QDialog):
         # ── Buttons ──────────────────────────────────────────────────────────
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color:#ddd; margin:2px 0;")
+        sep.setStyleSheet("color:#ddd; margin:2px 0px;")
         layout.addWidget(sep)
 
         btn_row = QHBoxLayout()
@@ -697,7 +697,7 @@ class _DienstplanPane(QWidget):
         self._table.setRowCount(0)
         self._datum_lbl.setVisible(False)
         self._status_lbl.setText('Doppelklick auf eine Datei im Baum, um sie zu laden.')
-        self._status_lbl.setStyleSheet('color: #888; padding: 2px 0;')
+        self._status_lbl.setStyleSheet('color: #888; padding: 2px 0px;')
         self._row_count_lbl.setText('0 Eintraege')
         self._title_lbl.setText(f'Dienstplan {self._pane_index + 1}')
 
@@ -765,14 +765,14 @@ class _DienstplanPane(QWidget):
 
         self._datum_lbl = QLabel('')
         self._datum_lbl.setFont(QFont('Arial', 12, QFont.Weight.Bold))
-        self._datum_lbl.setStyleSheet(f'color: {FIORI_TEXT}; padding: 2px 0;')
+        self._datum_lbl.setStyleSheet(f'color: {FIORI_TEXT}; padding: 2px 0px;')
         self._datum_lbl.setVisible(False)
         layout.addWidget(self._datum_lbl)
 
         self._status_lbl = QLabel('Doppelklick auf eine Datei im Baum, um sie zu laden.')
         self._status_lbl.setFont(QFont('Arial', 9))
         self._status_lbl.setWordWrap(True)
-        self._status_lbl.setStyleSheet('color: #888; padding: 1px 0;')
+        self._status_lbl.setStyleSheet('color: #888; padding: 1px 0px;')
         layout.addWidget(self._status_lbl)
 
         self._table = QTableWidget()
@@ -836,7 +836,7 @@ class _DienstplanPane(QWidget):
     def load(self, path: str) -> bool:
         """Excel-Datei einlesen und Tabelle befüllen. Gibt True bei Erfolg zurück."""
         self._status_lbl.setText(' Datei wird eingelesen ...')
-        self._status_lbl.setStyleSheet('color: #555; padding: 2px 0;')
+        self._status_lbl.setStyleSheet('color: #555; padding: 2px 0px;')
         self._status_lbl.repaint()
 
         try:
@@ -851,7 +851,7 @@ class _DienstplanPane(QWidget):
                     f"Die Datei konnte nicht geparst werden:\n\n{display_result['error']}"
                 )
                 self._status_lbl.setText('Fehler: Fehler beim Einlesen.')
-                self._status_lbl.setStyleSheet('color: #bb0000; padding: 2px 0;')
+                self._status_lbl.setStyleSheet('color: #bb0000; padding: 2px 0px;')
                 return False
 
             self._excel_path   = path
@@ -882,13 +882,13 @@ class _DienstplanPane(QWidget):
                 )
 
             self._status_lbl.setText(f'Geladen: {dateiname}')
-            self._status_lbl.setStyleSheet('color: #107e3e; padding: 2px 0;')
+            self._status_lbl.setStyleSheet('color: #107e3e; padding: 2px 0px;')
             return True
 
         except Exception as e:
             QMessageBox.critical(self, 'Fehler', f'Unerwarteter Fehler:\n{e}')
             self._status_lbl.setText(f'Fehler: {e}')
-            self._status_lbl.setStyleSheet('color: #bb0000; padding: 2px 0;')
+            self._status_lbl.setStyleSheet('color: #bb0000; padding: 2px 0px;')
             return False
 
     # ---------- Tabelle rendern ----------
@@ -1090,7 +1090,7 @@ class _DienstplanPane(QWidget):
             teile.append(f'{krank_gesamt} Krank  –  {" | ".join(krank_blocks)}')
 
         self._row_count_lbl.setText('  |  '.join(teile) if teile else '0 Eintraege')
-        self._row_count_lbl.setStyleSheet('color: #555; font-weight: bold; padding: 2px 0;')
+        self._row_count_lbl.setStyleSheet('color: #555; font-weight: bold; padding: 2px 0px;')
 
     # ---------- Doppelklick Tabellenzeile ----------
 
@@ -1139,7 +1139,7 @@ class _DienstplanPane(QWidget):
                     f'  \u26a0\ufe0f Andere Nutzer m\u00fcssen die Datei neu \u00f6ffnen, '
                     f'sonst werden die \u00c4nderungen \u00fcberschrieben!'
                 )
-                self._status_lbl.setStyleSheet('color: #b85c00; font-weight: bold; padding: 2px 0;')
+                self._status_lbl.setStyleSheet('color: #b85c00; font-weight: bold; padding: 2px 0px;')
         except Exception as e:
             QMessageBox.critical(self, 'Fehler', f'Fehler beim Neu-Laden:\n{e}')
 
@@ -1270,31 +1270,30 @@ class _DienstplanPane(QWidget):
 class PaxMonatsübersichtDialog(QDialog):
     """
     Zeigt vor dem Word-Export die Monatsübersicht der PAX- und Einsatz-Einträge.
-    Fehlende Tage (kein Eintrag, Wert = 0) werden rot hervorgehoben.
-    Der Nutzer kann direkt fortfahren oder den Export abbrechen.
+    Jahr und Monat sind frei wählbar. Durch Anklicken einer Zeile kann die
+    PAX-Zahl des gewählten Tages für den Export übernommen werden.
     """
+
+    _MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni",
+               "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
     def __init__(self, von_datum, pax_heute: int, einsaetze_heute: int, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Monatsübersicht vor dem Export")
-        self.setMinimumSize(700, 520)
-        self._von          = von_datum
-        self._pax_heute    = pax_heute
-        self._ein_heute    = einsaetze_heute
+        self.setMinimumSize(720, 580)
+        self._von       = von_datum
+        self._pax_heute = pax_heute
+        self._ein_heute = einsaetze_heute
+        # Rückgabewerte für den Export; None = Original-Wert behalten
+        self.selected_pax  : int | None = None
+        self.selected_ein  : int | None = None
+        self.selected_datum: str | None = None
         self._build_ui()
 
     # ------------------------------------------------------------------
     def _build_ui(self):
-        import calendar
-        from datetime import date, timedelta
-        from database.pax_db import lade_alle_eintraege
-
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
-
-        monat = self._von.month
-        jahr  = self._von.year
-        heute_str = self._von.strftime("%Y-%m-%d")
 
         # ── Warnung ──────────────────────────────────────────────────────────
         warn = QLabel(
@@ -1310,57 +1309,130 @@ class PaxMonatsübersichtDialog(QDialog):
         )
         layout.addWidget(warn)
 
-        # ── Monats-Titel ─────────────────────────────────────────────────────
-        monat_lbl = QLabel(
-            f"Monat: {calendar.month_name[monat]} {jahr}  "
-            f"(Heute eingetragen:  PAX = {self._pax_heute:,}   |   SL-Einsätze = {self._ein_heute})"
-        )
-        monat_lbl.setStyleSheet("font-weight:bold; font-size:13px; color:#103060; padding:4px 0;")
-        layout.addWidget(monat_lbl)
+        # ── Jahr + Monat Navigation ───────────────────────────────────────────
+        nav_row = QHBoxLayout()
+        nav_row.addWidget(QLabel("<b>Jahr:</b>"))
+        self._jahr_spin = QSpinBox()
+        self._jahr_spin.setRange(2020, 2099)
+        self._jahr_spin.setValue(self._von.year)
+        self._jahr_spin.setFixedWidth(75)
+        nav_row.addWidget(self._jahr_spin)
+
+        nav_row.addSpacing(14)
+        nav_row.addWidget(QLabel("<b>Monat:</b>"))
+        self._monat_combo = QComboBox()
+        for _m in self._MONATE:
+            self._monat_combo.addItem(_m)
+        self._monat_combo.setCurrentIndex(self._von.month - 1)
+        self._monat_combo.setFixedWidth(130)
+        nav_row.addWidget(self._monat_combo)
+        nav_row.addStretch()
+
+        self._monat_lbl = QLabel("")
+        self._monat_lbl.setStyleSheet("font-weight:bold; font-size:13px; color:#103060;")
+        nav_row.addWidget(self._monat_lbl)
+        layout.addLayout(nav_row)
 
         # ── Tabelle ───────────────────────────────────────────────────────────
-        table = QTableWidget()
-        table.setColumnCount(4)
-        table.setHorizontalHeaderLabels(["Datum", "Wochentag", "PAX-Zahl", "SL-Einsätze"])
-        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        table.setAlternatingRowColors(True)
-        table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-        table.setStyleSheet(
+        self._table = QTableWidget()
+        self._table.setColumnCount(4)
+        self._table.setHorizontalHeaderLabels(["Datum", "Wochentag", "PAX-Zahl", "SL-Einsätze"])
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setAlternatingRowColors(True)
+        self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setStyleSheet(
             "QTableWidget { border:1px solid #dce8f5; border-radius:4px; }"
             "QHeaderView::section { background:#e8f0fb; font-weight:bold; padding:4px; }"
+            "QTableWidget::item:selected { background:#1565a8; color:white; font-weight:bold; }"
+        )
+        layout.addWidget(self._table)
+
+        # ── Auswahl-Info ─────────────────────────────────────────────────────
+        self._auswahl_lbl = QLabel(
+            "🔵  Zeile anklicken um die PAX-Zahl dieses Tages für den Export zu übernehmen."
+        )
+        self._auswahl_lbl.setWordWrap(True)
+        self._auswahl_lbl.setStyleSheet(
+            "background:#e8f0fb; border:1px solid #b0c8f0; border-radius:4px; "
+            "padding:7px 10px; color:#1a4a8a; font-size:12px;"
+        )
+        layout.addWidget(self._auswahl_lbl)
+
+        # ── Fehlende-Einträge-Info ────────────────────────────────────────────
+        self._fehler_lbl = QLabel("")
+        self._fehler_lbl.setWordWrap(True)
+        self._fehler_lbl.setStyleSheet("color:#b00000; font-size:11px; padding:2px 0px;")
+        layout.addWidget(self._fehler_lbl)
+
+        # ── Buttons ───────────────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+
+        verwaltung_btn = QPushButton("PAX && Einsätze jetzt nachtragen ...")
+        verwaltung_btn.setMinimumHeight(32)
+        verwaltung_btn.setStyleSheet(
+            "background:#5a3e8c;color:white;border:none;border-radius:4px;padding:0 12px;"
+        )
+        verwaltung_btn.clicked.connect(self._verwaltung_oeffnen)
+        btn_row.addWidget(verwaltung_btn)
+
+        btn_row.addStretch()
+
+        self._export_btn = QPushButton("Trotzdem exportieren")
+        self._export_btn.setMinimumHeight(32)
+        self._export_btn.setStyleSheet(
+            f"background:{FIORI_BLUE};color:white;border:none;border-radius:4px;padding:0 16px;"
+        )
+        self._export_btn.clicked.connect(self._do_export)
+        btn_row.addWidget(self._export_btn)
+
+        abbruch_btn = QPushButton("Abbrechen")
+        abbruch_btn.setMinimumHeight(32)
+        abbruch_btn.clicked.connect(self.reject)
+        btn_row.addWidget(abbruch_btn)
+
+        layout.addLayout(btn_row)
+
+        # Signale verbinden und Tabelle einmalig befüllen
+        self._jahr_spin.valueChanged.connect(self._aktualisiere_tabelle)
+        self._monat_combo.currentIndexChanged.connect(self._aktualisiere_tabelle)
+        self._table.itemSelectionChanged.connect(self._on_auswahl)
+        self._aktualisiere_tabelle()
+
+    # ------------------------------------------------------------------
+    def _aktualisiere_tabelle(self):
+        import calendar
+        from datetime import date
+        from database.pax_db import lade_alle_eintraege
+
+        jahr      = self._jahr_spin.value()
+        monat     = self._monat_combo.currentIndex() + 1
+        heute_str = self._von.strftime("%Y-%m-%d")
+
+        self._monat_lbl.setText(
+            f"Monat: {self._MONATE[monat - 1]} {jahr}  "
+            f"(Heute eingetragen:  PAX = {self._pax_heute:,}   |   SL-Einsätze = {self._ein_heute})"
         )
 
-        # Alle Einträge des Monats laden (inklusive heute)
+        # Alle DB-Einträge des gewählten Jahres laden
         try:
             alle = {e["datum"]: e for e in lade_alle_eintraege(jahr)}
         except Exception:
             alle = {}
 
-        # Zukunftsdaten erkennen (Einträge mit Datum > heute)
         heute_date = date.today()
-        zukunfts_eintraege = [
+
+        # Zukunftsdaten erkennen
+        zukunfts_eintraege = sorted(
             d_str for d_str in alle
             if date.fromisoformat(d_str) > heute_date
-        ]
-        if zukunfts_eintraege:
-            zukunfts_eintraege.sort()
-            zukunft_warn = QLabel(
-                f"\u26a0\ufe0f  ACHTUNG: Es gibt {len(zukunfts_eintraege)} Eintrag/Eintr\u00e4ge mit Datum in der ZUKUNFT: "
-                + ", ".join(zukunfts_eintraege)
-                + "\n   Das ist ein Fehler \u2013 bitte im Verwaltungs-Dialog korrigieren oder l\u00f6schen!"
-            )
-            zukunft_warn.setWordWrap(True)
-            zukunft_warn.setStyleSheet(
-                "background:#f8d7da; border:2px solid #dc3545; border-radius:5px; "
-                "padding:8px 12px; color:#721c24; font-size:12px; font-weight:bold;"
-            )
-            layout.insertWidget(0, zukunft_warn)
+        )
 
-        # Heutigen Eintrag mit den frisch eingegebenen Werten überschreiben
+        # Heutigen Eintrag mit frisch eingegebenen Werten überschreiben
         if self._pax_heute > 0 or self._ein_heute > 0:
             alle[heute_str] = {
                 "datum": heute_str,
@@ -1368,24 +1440,28 @@ class PaxMonatsübersichtDialog(QDialog):
                 "einsaetze_zahl": self._ein_heute,
             }
 
-        wochentage = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+        wochentage   = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
         tage_im_monat = calendar.monthrange(jahr, monat)[1]
-        fehlende = 0
+        fehlende     = 0
+        scroll_to_row = -1
+
+        self._table.blockSignals(True)
+        self._table.setRowCount(0)
 
         for tag in range(1, tage_im_monat + 1):
             d = date(jahr, monat, tag)
-            if d > date.today():
-                continue  # Zukunft nicht anzeigen
-            d_str = d.strftime("%Y-%m-%d")
+            if d > heute_date:
+                continue  # Zukunftstage nicht anzeigen
+            d_str   = d.strftime("%Y-%m-%d")
             eintrag = alle.get(d_str)
-            pax = eintrag["pax_zahl"]    if eintrag else 0
-            ein = eintrag["einsaetze_zahl"] if eintrag else 0
-            fehlt = (pax == 0) or (ein == 0)
+            pax     = eintrag["pax_zahl"]       if eintrag else 0
+            ein     = eintrag["einsaetze_zahl"] if eintrag else 0
+            fehlt   = (pax == 0) or (ein == 0)
             if fehlt:
                 fehlende += 1
 
-            row = table.rowCount()
-            table.insertRow(row)
+            row = self._table.rowCount()
+            self._table.insertRow(row)
 
             datum_item = QTableWidgetItem(d_str)
             wt_item    = QTableWidgetItem(wochentage[d.weekday()])
@@ -1400,64 +1476,93 @@ class PaxMonatsübersichtDialog(QDialog):
                 if d_str == heute_str:
                     item.setBackground(QColor("#d4edda"))
                     item.setForeground(QColor("#155724"))
+                    scroll_to_row = row
 
-            table.setItem(row, 0, datum_item)
-            table.setItem(row, 1, wt_item)
-            table.setItem(row, 2, pax_item)
-            table.setItem(row, 3, ein_item)
+            self._table.setItem(row, 0, datum_item)
+            self._table.setItem(row, 1, wt_item)
+            self._table.setItem(row, 2, pax_item)
+            self._table.setItem(row, 3, ein_item)
 
-        # Zu heute-Zeile scrollen
-        for r in range(table.rowCount()):
-            if table.item(r, 0) and table.item(r, 0).text() == heute_str:
-                table.scrollToItem(table.item(r, 0))
-                break
+        self._table.blockSignals(False)
 
-        layout.addWidget(table)
+        # Zur heute-Zeile scrollen und vorauswählen
+        if scroll_to_row >= 0:
+            self._table.scrollToItem(self._table.item(scroll_to_row, 0))
+            self._table.selectRow(scroll_to_row)
 
-        # ── Fehlende-Einträge-Info ────────────────────────────────────────────
+        # Fehlende-Info aktualisieren
         if fehlende:
-            fehler_lbl = QLabel(
+            self._fehler_lbl.setText(
                 f"❌  {fehlende} Tag(e) haben fehlende oder unvollständige Einträge (rot markiert). "
                 "Bitte im Verwaltungs-Dialog nachtragen oder jetzt trotzdem exportieren."
             )
-            fehler_lbl.setWordWrap(True)
-            fehler_lbl.setStyleSheet(
-                "color:#b00000; font-size:11px; padding:4px 0;"
+        else:
+            self._fehler_lbl.setText("")
+
+        if zukunfts_eintraege:
+            QMessageBox.warning(
+                self,
+                "Zukunftsdaten gefunden",
+                f"⚠️  ACHTUNG: Es gibt {len(zukunfts_eintraege)} Eintrag/Einträge "
+                f"mit Datum in der Zukunft:\n  "
+                + ", ".join(zukunfts_eintraege)
+                + "\n\nBitte im Verwaltungs-Dialog korrigieren oder löschen!"
             )
-            layout.addWidget(fehler_lbl)
 
-        # ── Buttons ───────────────────────────────────────────────────────────
-        btn_row = QHBoxLayout()
+    # ------------------------------------------------------------------
+    def _on_auswahl(self):
+        """Aktualisiert Auswahl-Info wenn eine Zeile angeklickt wird."""
+        row = self._table.currentRow()
+        if row < 0 or not self._table.selectedItems():
+            self._auswahl_lbl.setText(
+                "🔵  Zeile anklicken um die PAX-Zahl dieses Tages für den Export zu übernehmen."
+            )
+            self._auswahl_lbl.setStyleSheet(
+                "background:#e8f0fb; border:1px solid #b0c8f0; border-radius:4px; "
+                "padding:7px 10px; color:#1a4a8a; font-size:12px;"
+            )
+            self._export_btn.setText("Trotzdem exportieren")
+            return
 
-        verwaltung_btn = QPushButton("PAX & Einsätze jetzt nachtragen ...")
-        verwaltung_btn.setMinimumHeight(32)
-        verwaltung_btn.setStyleSheet(
-            "background:#5a3e8c;color:white;border:none;border-radius:4px;padding:0 12px;"
+        datum_item = self._table.item(row, 0)
+        pax_item   = self._table.item(row, 2)
+        ein_item   = self._table.item(row, 3)
+
+        datum   = datum_item.text() if datum_item else "?"
+        pax_txt = pax_item.text()   if pax_item   else "—"
+        ein_txt = ein_item.text()   if ein_item   else "—"
+
+        pax_val = int(pax_txt) if pax_txt not in ("—", "-", "") else 0
+        ein_val = int(ein_txt) if ein_txt not in ("—", "-", "") else 0
+
+        self._auswahl_lbl.setText(
+            f"✅  Ausgewählt: {datum}  │  PAX: {pax_val:,}  │  SL-Einsätze: {ein_val}"
+            "  —  Diese Werte werden für den Export verwendet."
         )
-        verwaltung_btn.clicked.connect(self._verwaltung_oeffnen)
-        btn_row.addWidget(verwaltung_btn)
-
-        btn_row.addStretch()
-
-        export_btn = QPushButton("Trotzdem exportieren")
-        export_btn.setMinimumHeight(32)
-        export_btn.setStyleSheet(
-            f"background:{FIORI_BLUE};color:white;border:none;border-radius:4px;padding:0 16px;"
+        self._auswahl_lbl.setStyleSheet(
+            "background:#d4edda; border:2px solid #28a745; border-radius:4px; "
+            "padding:7px 10px; color:#155724; font-size:12px; font-weight:bold;"
         )
-        export_btn.clicked.connect(self.accept)
-        btn_row.addWidget(export_btn)
+        self._export_btn.setText(f"Exportieren  (PAX: {pax_val:,} | Einsätze: {ein_val})")
 
-        abbruch_btn = QPushButton("Abbrechen")
-        abbruch_btn.setMinimumHeight(32)
-        abbruch_btn.clicked.connect(self.reject)
-        btn_row.addWidget(abbruch_btn)
-
-        layout.addLayout(btn_row)
+    # ------------------------------------------------------------------
+    def _do_export(self):
+        """Übernimmt die ausgewählten Werte und bestätigt den Dialog."""
+        row = self._table.currentRow()
+        if row >= 0 and self._table.selectedItems():
+            datum_item = self._table.item(row, 0)
+            pax_item   = self._table.item(row, 2)
+            ein_item   = self._table.item(row, 3)
+            self.selected_datum = datum_item.text() if datum_item else None
+            pax_txt = pax_item.text() if pax_item else "—"
+            ein_txt = ein_item.text() if ein_item else "—"
+            self.selected_pax = int(pax_txt) if pax_txt not in ("—", "-", "") else 0
+            self.selected_ein = int(ein_txt) if ein_txt not in ("—", "-", "") else 0
+        self.accept()
 
     def _verwaltung_oeffnen(self):
         dlg = PaxEinsatzVerwaltungDialog(parent=self)
         dlg.exec()
-        # Dialog schließen, damit Nutzer zurück zum Export kann (neu aufgerufen)
         self.reject()
 
 
@@ -1476,7 +1581,7 @@ class PaxEinsatzVerwaltungDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
-        # ── Jahr-Auswahl ────────────────────────────────────────────────
+        # ── Jahr + Monat Auswahl ────────────────────────────────────────
         top = QHBoxLayout()
         top.addWidget(QLabel("Jahr:"))
         self._jahr_spin = QSpinBox()
@@ -1485,6 +1590,17 @@ class PaxEinsatzVerwaltungDialog(QDialog):
         self._jahr_spin.setFixedWidth(80)
         self._jahr_spin.valueChanged.connect(self._lade_daten)
         top.addWidget(self._jahr_spin)
+
+        top.addSpacing(14)
+        top.addWidget(QLabel("Monat:"))
+        self._monat_combo = QComboBox()
+        for _m in ["Januar", "Februar", "März", "April", "Mai", "Juni",
+                   "Juli", "August", "September", "Oktober", "November", "Dezember"]:
+            self._monat_combo.addItem(_m)
+        self._monat_combo.setCurrentIndex(datetime.now().month - 1)
+        self._monat_combo.setFixedWidth(120)
+        self._monat_combo.currentIndexChanged.connect(self._lade_daten)
+        top.addWidget(self._monat_combo)
         top.addStretch()
 
         self._summen_lbl = QLabel("")
@@ -1494,8 +1610,9 @@ class PaxEinsatzVerwaltungDialog(QDialog):
 
         # ── Hinweis ─────────────────────────────────────────────────────
         hint = QLabel(
-            "Doppelklick auf eine Zelle zum Bearbeiten. "
-            "Datum im Format JJJJ-MM-TT eintragen."
+            "Alle Tage des gewählten Monats werden angezeigt. "
+            "Rot = kein Eintrag vorhanden. "
+            "Doppelklick zum Bearbeiten."
         )
         hint.setStyleSheet("color: #666; font-size: 11px;")
         layout.addWidget(hint)
@@ -1558,36 +1675,61 @@ class PaxEinsatzVerwaltungDialog(QDialog):
 
     # ------------------------------------------------------------------
     def _lade_daten(self):
+        import calendar
         from database.pax_db import lade_alle_eintraege
         from datetime import date as _date
         self._table.blockSignals(True)
         self._table.setRowCount(0)
         self._aenderungen.clear()
 
-        jahr = self._jahr_spin.value()
-        eintraege = lade_alle_eintraege(jahr)
+        jahr  = self._jahr_spin.value()
+        monat = self._monat_combo.currentIndex() + 1
         heute = _date.today()
-        zukunft_gefunden = []
 
-        for eintrag in eintraege:
+        # Alle DB-Einträge des Jahres als dict laden
+        try:
+            alle_eintraege = {e["datum"]: e for e in lade_alle_eintraege(jahr)}
+        except Exception:
+            alle_eintraege = {}
+
+        zukunft_gefunden = []
+        tage_im_monat = calendar.monthrange(jahr, monat)[1]
+
+        for tag in range(1, tage_im_monat + 1):
+            d     = _date(jahr, monat, tag)
+            d_str = d.strftime("%Y-%m-%d")
+            eintrag = alle_eintraege.get(d_str)
+
             row = self._table.rowCount()
             self._table.insertRow(row)
-            d_str = eintrag["datum"]
-            item_datum = QTableWidgetItem(d_str)
-            item_pax   = QTableWidgetItem(str(eintrag["pax_zahl"]))
-            item_ein   = QTableWidgetItem(str(eintrag["einsaetze_zahl"]))
 
-            # Zukunftsdaten orange + Tooltip
-            try:
-                ist_zukunft = _date.fromisoformat(d_str) > heute
-            except ValueError:
-                ist_zukunft = False
-            if ist_zukunft:
-                zukunft_gefunden.append(d_str)
-                for item in (item_datum, item_pax, item_ein):
-                    item.setBackground(QColor("#fff3cd"))
-                    item.setForeground(QColor("#856404"))
-                    item.setToolTip("\u26a0 Zukunftsdatum \u2013 bitte l\u00f6schen!")
+            if eintrag:
+                item_datum = QTableWidgetItem(d_str)
+                item_pax   = QTableWidgetItem(str(eintrag["pax_zahl"]))
+                item_ein   = QTableWidgetItem(str(eintrag["einsaetze_zahl"]))
+                # Zukunftsdaten orange markieren
+                if d > heute:
+                    zukunft_gefunden.append(d_str)
+                    for item in (item_datum, item_pax, item_ein):
+                        item.setBackground(QColor("#fff3cd"))
+                        item.setForeground(QColor("#856404"))
+                        item.setToolTip("⚠ Zukunftsdatum – bitte löschen!")
+            else:
+                # Fehlender Eintrag: rot markieren, aber editierbar
+                item_datum = QTableWidgetItem(d_str)
+                item_pax   = QTableWidgetItem("0")
+                item_ein   = QTableWidgetItem("0")
+                if d <= heute:
+                    for item in (item_datum, item_pax, item_ein):
+                        item.setBackground(QColor("#ffe0e0"))
+                        item.setForeground(QColor("#b00000"))
+                        item.setToolTip("Kein Eintrag – Doppelklick zum Nachtragen")
+                else:
+                    # Zukunftstag ohne Eintrag: grau anzeigen, nicht editierbar
+                    for item in (item_datum, item_pax, item_ein):
+                        item.setBackground(QColor("#f5f5f5"))
+                        item.setForeground(QColor("#aaaaaa"))
+                        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
             self._table.setItem(row, 0, item_datum)
             self._table.setItem(row, 1, item_pax)
@@ -1596,15 +1738,22 @@ class PaxEinsatzVerwaltungDialog(QDialog):
         self._table.blockSignals(False)
         self._update_summen()
 
+        # Zur heutigen Zeile scrollen (wenn im aktuellen Monat)
+        heute_str = heute.strftime("%Y-%m-%d")
+        for r in range(self._table.rowCount()):
+            if self._table.item(r, 0) and self._table.item(r, 0).text() == heute_str:
+                self._table.scrollToItem(self._table.item(r, 0))
+                break
+
         if zukunft_gefunden:
             QMessageBox.warning(
                 self,
                 "Zukunftsdaten gefunden",
-                f"\u26a0\ufe0f  Achtung: Es gibt {len(zukunft_gefunden)} Eintrag/Eintr\u00e4ge "
+                f"⚠️  Achtung: Es gibt {len(zukunft_gefunden)} Eintrag/Einträge "
                 f"mit Datum in der Zukunft:\n\n  "
                 + "\n  ".join(zukunft_gefunden)
-                + "\n\nBitte diese Zeilen l\u00f6schen! Orange markierte Zeilen anw\u00e4hlen "
-                "und die Schaltfl\u00e4che 'Zeile l\u00f6schen' nutzen."
+                + "\n\nBitte diese Zeilen löschen! Orange markierte Zeilen anwählen "
+                "und die Schaltfläche 'Zeile löschen' nutzen."
             )
 
     def _update_summen(self):
@@ -1830,7 +1979,7 @@ class DienstplanWidget(QWidget):
 
         tree_header = QLabel("Dienstplaene")
         tree_header.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        tree_header.setStyleSheet(f"color: {FIORI_TEXT}; padding: 4px 0;")
+        tree_header.setStyleSheet(f"color: {FIORI_TEXT}; padding: 4px 0px;")
         tree_layout.addWidget(tree_header)
 
         self._manuell_btn = QPushButton("📂  Datei öffnen ...")
@@ -2060,7 +2209,7 @@ class DienstplanWidget(QWidget):
                     pane._status_lbl.setText(
                         f'🌐 Webseite automatisch aktualisiert – {_dt.now().strftime("%H:%M:%S")}'
                     )
-                    pane._status_lbl.setStyleSheet('color: #1e7e34; font-weight: bold; padding: 2px 0;')
+                    pane._status_lbl.setStyleSheet('color: #1e7e34; font-weight: bold; padding: 2px 0px;')
                 except Exception:
                     pass
                 return
@@ -2105,7 +2254,7 @@ class DienstplanWidget(QWidget):
             pane._status_lbl.setText(
                 f'🌐 Webseite generiert – {os.path.basename(pfad)}'
             )
-            pane._status_lbl.setStyleSheet('color: #1e7e34; font-weight: bold; padding: 2px 0;')
+            pane._status_lbl.setStyleSheet('color: #1e7e34; font-weight: bold; padding: 2px 0px;')
 
         except Exception as e:
             QMessageBox.critical(self, "Fehler beim HTML-Export", f"Fehler:\n{e}")
@@ -2161,6 +2310,11 @@ class DienstplanWidget(QWidget):
             )
             if monats_dlg.exec() != QDialog.DialogCode.Accepted:
                 return
+            # Vom Nutzer ausgewählten Tag/PAX übernehmen (falls eine Zeile gewählt)
+            if monats_dlg.selected_pax is not None:
+                params['pax_zahl'] = monats_dlg.selected_pax
+            if monats_dlg.selected_ein is not None:
+                params['einsaetze_zahl'] = monats_dlg.selected_ein
 
         try:
             # PAX-Zahl + Einsätze VOR Export in DB speichern, damit die
@@ -2213,7 +2367,7 @@ class DienstplanWidget(QWidget):
             )
 
             pane._status_lbl.setText(f"Word-Export: {os.path.basename(pfad)}")
-            pane._status_lbl.setStyleSheet("color: #107e3e; padding: 2px 0;")
+            pane._status_lbl.setStyleSheet("color: #107e3e; padding: 2px 0px;")
 
         except Exception as e:
             QMessageBox.critical(self, "Fehler beim Export", f"Fehler:\n{e}")
