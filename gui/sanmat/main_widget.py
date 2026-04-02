@@ -20,6 +20,7 @@ from gui.sanmat.artikel      import ArtikelView
 from gui.sanmat.bestand      import BestandView
 from gui.sanmat.entnahme     import EntnahmeView
 from gui.sanmat.verlauf      import VerlaufView
+from gui.sanmat.verbrauch    import VerbrauchView
 from gui.sanmat.einstellungen import EinstellungenView
 
 _NAV = [
@@ -28,6 +29,7 @@ _NAV = [
     ("📦", "Bestand"),
     ("➡", "Entnahme"),
     ("📜", "Verlauf"),
+    ("🧰", "Verbrauch"),
     ("ℹ", "Info"),
 ]
 
@@ -145,6 +147,7 @@ class SanmatWidget(QWidget):
         self._stack.addWidget(BestandView(self.db))
         self._stack.addWidget(EntnahmeView(self.db))
         self._stack.addWidget(VerlaufView(self.db))
+        self._stack.addWidget(VerbrauchView(self.db))
         self._stack.addWidget(EinstellungenView(self.db))
         root.addWidget(self._stack, 1)
 

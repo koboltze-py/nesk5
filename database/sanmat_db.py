@@ -330,13 +330,13 @@ class SanmatDB:
 
     def entnehmen(self, artikel_id: int, artikel_name: str, menge: int,
                   datum: str, typ: str = "entnahme", von: str = "",
-                  bemerkung: str = "") -> tuple[bool, str]:
+                  bemerkung: str = "", negativ_erlaubt: bool = False) -> tuple[bool, str]:
         conn = self._conn()
         try:
             cur = conn.execute("SELECT menge FROM bestand WHERE artikel_id = ?", (artikel_id,))
             row = cur.fetchone()
             aktuell = row["menge"] if row else 0
-            if menge > aktuell:
+            if not negativ_erlaubt and menge > aktuell:
                 conn.close()
                 return False, f"Nicht genug auf Lager (Bestand: {aktuell})."
             conn.execute("""
@@ -443,6 +443,132 @@ class SanmatDB:
         count = cur.fetchone()[0]
         conn.close()
         return count
+
+    def buche_verbrauch_gruppe(self, stichwort: str, artikel_liste: list[dict],
+                               datum: str, entnehmer: str = "",
+                               negativ_erlaubt: bool = False) -> tuple[bool, str]:
+        """Bucht mehrere Artikel als manuelle Verbrauchsgruppe (GID = Zeitstempel)."""
+        import time
+        gid = int(time.time())
+        bemerkung = f"{stichwort}  (GID {gid})"
+        conn = self._conn()
+        try:
+            fehler = []
+            for pos in artikel_liste:
+                art_id   = pos["artikel_id"]
+                art_name = pos["bezeichnung"]
+                menge    = int(pos["menge"])
+                cur = conn.execute("SELECT menge FROM bestand WHERE artikel_id = ?", (art_id,))
+                row = cur.fetchone()
+                aktuell = row["menge"] if row else 0
+                if not negativ_erlaubt and menge > aktuell:
+                    fehler.append(f"{art_name}: Nicht genug Bestand ({aktuell})")
+                    continue
+                conn.execute("""
+                    UPDATE bestand SET menge = menge - ?, geaendert_am = datetime('now','localtime')
+                    WHERE artikel_id = ?
+                """, (menge, art_id))
+                conn.execute(
+                    "INSERT INTO buchungen (artikel_id, artikel_name, menge, typ, von, bemerkung, datum) "
+                    "VALUES (?, ?, ?, 'verbrauch', ?, ?, ?)",
+                    (art_id, art_name, -menge, entnehmer, bemerkung, datum)
+                )
+            if fehler:
+                conn.rollback()
+                return False, "\n".join(fehler)
+            conn.commit()
+            return True, f"{len(artikel_liste)} Artikel als Verbrauchsgruppe gebucht."
+        except Exception as e:
+            conn.rollback()
+            return False, str(e)
+        finally:
+            conn.close()
+
+    def get_buchung_by_id(self, bid: int) -> dict | None:
+        conn = self._conn()
+        cur = conn.execute(
+            "SELECT id, artikel_id, artikel_name, menge, typ, von, bemerkung, datum FROM buchungen WHERE id=?",
+            (bid,)
+        )
+        row = cur.fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def delete_buchung(self, bid: int) -> tuple[bool, str]:
+        """Löscht eine Buchung und stellt den Bestand wieder her."""
+        conn = self._conn()
+        try:
+            cur = conn.execute(
+                "SELECT artikel_id, menge FROM buchungen WHERE id=?", (bid,)
+            )
+            row = cur.fetchone()
+            if not row:
+                conn.close()
+                return False, "Buchung nicht gefunden."
+            artikel_id, menge = row["artikel_id"], row["menge"]
+            # Bestand rückgängig machen (menge war negativ bei verbrauch)
+            conn.execute(
+                "UPDATE bestand SET menge = menge - ?, geaendert_am = datetime('now','localtime') WHERE artikel_id = ?",
+                (menge, artikel_id)
+            )
+            conn.execute("DELETE FROM buchungen WHERE id=?", (bid,))
+            conn.commit()
+            return True, "Buchung gelöscht."
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+
+    def update_buchung(self, bid: int, neue_menge: int, von: str,
+                       bemerkung: str, datum: str) -> tuple[bool, str]:
+        """Ändert Menge/Von/Bemerkung/Datum und passt Bestand an."""
+        conn = self._conn()
+        try:
+            cur = conn.execute(
+                "SELECT artikel_id, menge FROM buchungen WHERE id=?", (bid,)
+            )
+            row = cur.fetchone()
+            if not row:
+                conn.close()
+                return False, "Buchung nicht gefunden."
+            artikel_id, alte_menge = row["artikel_id"], row["menge"]
+            # alte_menge ist negativ (verbrauch), neue_menge ist positiv (Eingabe)
+            neue_menge_db = -abs(neue_menge)
+            diff = neue_menge_db - alte_menge  # wie viel sich der Bestand ändert
+            conn.execute(
+                "UPDATE bestand SET menge = menge - ?, geaendert_am = datetime('now','localtime') WHERE artikel_id = ?",
+                (diff, artikel_id)
+            )
+            conn.execute(
+                "UPDATE buchungen SET menge=?, von=?, bemerkung=?, datum=? WHERE id=?",
+                (neue_menge_db, von, bemerkung, datum, bid)
+            )
+            conn.commit()
+            return True, "Buchung aktualisiert."
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
+
+    def restore_buchung(self, snapshot: dict) -> tuple[bool, str]:
+        """Stellt eine gelöschte Buchung aus einem Snapshot wieder her."""
+        conn = self._conn()
+        try:
+            conn.execute("""
+                INSERT INTO buchungen (id, artikel_id, artikel_name, menge, typ, von, bemerkung, datum)
+                VALUES (:id, :artikel_id, :artikel_name, :menge, :typ, :von, :bemerkung, :datum)
+            """, snapshot)
+            # Bestand zurücksetzen
+            conn.execute(
+                "UPDATE bestand SET menge = menge + ?, geaendert_am = datetime('now','localtime') WHERE artikel_id = ?",
+                (snapshot["menge"], snapshot["artikel_id"])
+            )
+            conn.commit()
+            return True, "Buchung wiederhergestellt."
+        except Exception as e:
+            return False, str(e)
+        finally:
+            conn.close()
 
     def get_statistik(self) -> dict:
         conn = self._conn()

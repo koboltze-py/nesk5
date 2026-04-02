@@ -4,6 +4,7 @@ Transaktionshistorie mit Filter, Pagination und CSV-Export.
 """
 
 import csv
+import re
 from datetime import datetime
 
 from PySide6.QtWidgets import (
@@ -179,19 +180,54 @@ class VerlaufView(QWidget):
         buchungen = self.db.get_buchungen(limit=PAGE_SIZE, offset=self._offset, **f)
 
         self._tbl.setRowCount(len(buchungen))
-        for r, b in enumerate(buchungen):
+
+        # Einsatz-Gruppen ermitteln: verbrauch-Zeilen mit gleicher Einsatz-ID
+        _GROUP_COLORS = [QColor("#FFD180"), QColor("#FFF176")]
+        eid_list = []
+        eid_count = {}
+        for b in buchungen:
+            if b.get("typ") == "verbrauch":
+                m = re.search(r"\(ID\s*(\d+)\)", b.get("bemerkung", "") or "")
+                eid = int(m.group(1)) if m else None
+            else:
+                eid = None
+            eid_list.append(eid)
+            if eid is not None:
+                eid_count[eid] = eid_count.get(eid, 0) + 1
+        eid_color_map = {}
+        gi = 0
+        for eid, cnt in eid_count.items():
+            if cnt > 1:
+                eid_color_map[eid] = _GROUP_COLORS[gi % len(_GROUP_COLORS)]
+                gi += 1
+
+        for r, (b, eid) in enumerate(zip(buchungen, eid_list)):
+            typ = b.get("typ", "")
             menge = int(b.get("menge", 0))
-            menge_str = f"+{menge}" if menge > 0 else str(menge)
+            if typ == "verbrauch":
+                menge_str = str(abs(menge))
+            else:
+                menge_str = f"+{menge}" if menge > 0 else str(menge)
+            bemerkung = b.get("bemerkung", "") or ""
+            if typ == "verbrauch":
+                bemerkung = re.sub(r"\s*\(G?ID\s*\d+\)", "", bemerkung).strip()
             vals = [
-                _format_datum(b.get("datum", "")), b.get("typ", ""),
+                _format_datum(b.get("datum", "")), typ,
                 b.get("artikel_name", ""), menge_str,
-                b.get("von", ""), b.get("bemerkung", ""),
+                b.get("von", ""), bemerkung,
                 b.get("erstellt_am", "")[:16] if b.get("erstellt_am") else "",
             ]
-            color = _TYP_FARBEN.get(b.get("typ", ""), QColor("white"))
+            if eid is not None and eid in eid_color_map:
+                color = eid_color_map[eid]
+                tooltip = f"Mehrere Artikel in diesem Einsatz (ID {eid})"
+            else:
+                color = _TYP_FARBEN.get(typ, QColor("white"))
+                tooltip = ""
             for c, v in enumerate(vals):
                 it = QTableWidgetItem(str(v))
                 it.setBackground(color)
+                if tooltip:
+                    it.setToolTip(tooltip)
                 self._tbl.setItem(r, c, it)
 
         pages = max(1, (self._total + PAGE_SIZE - 1) // PAGE_SIZE)

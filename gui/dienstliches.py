@@ -23,6 +23,11 @@ from PySide6.QtGui import QFont, QColor
 
 from config import FIORI_BLUE, FIORI_TEXT, BASE_DIR, FIORI_BORDER
 
+try:
+    from database.sanmat_db import SanmatDB as _SanmatDB
+except ImportError:
+    _SanmatDB = None
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Datenbank
@@ -1129,6 +1134,126 @@ def _btn_light(text: str) -> QPushButton:
 #  Dialog: Einsatz erfassen / bearbeiten
 # ──────────────────────────────────────────────────────────────────────────────
 
+class _ArtikelPickerDialog(QDialog):
+    """Artikel aus Sanmat-Datenbank auswählen und Menge eingeben."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("🧰 Artikel hinzufügen")
+        self.setMinimumWidth(520)
+        self.setMinimumHeight(420)
+        self._artikel: list[dict] = []
+        self._table_data: list[dict] = []
+        self._build_ui()
+        self._laden()
+
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setSpacing(8)
+        lay.setContentsMargins(12, 12, 12, 8)
+
+        f_lay = QHBoxLayout()
+        f_lay.addWidget(QLabel("Suche:"))
+        self._filter = QLineEdit()
+        self._filter.setPlaceholderText("Bezeichnung oder Artikelnr …")
+        self._filter.textChanged.connect(self._filtern)
+        f_lay.addWidget(self._filter)
+        lay.addLayout(f_lay)
+
+        self._table = QTableWidget()
+        self._table.setColumnCount(4)
+        self._table.setHorizontalHeaderLabels(["Artikelnr.", "Bezeichnung", "Kategorie", "Bestand"])
+        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setAlternatingRowColors(True)
+        self._table.doubleClicked.connect(self._on_double_click)
+        lay.addWidget(self._table, 1)
+
+        menge_lay = QHBoxLayout()
+        menge_lay.addWidget(QLabel("Menge:"))
+        self._menge = QSpinBox()
+        self._menge.setRange(1, 9999)
+        self._menge.setValue(1)
+        self._menge.setFixedWidth(80)
+        menge_lay.addWidget(self._menge)
+        menge_lay.addStretch()
+        lay.addLayout(menge_lay)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText("Hinzufügen")
+        btns.accepted.connect(self._on_accept)
+        btns.rejected.connect(self.reject)
+        lay.addWidget(btns)
+
+    def _laden(self):
+        if _SanmatDB is None:
+            return
+        try:
+            db = _SanmatDB()
+            db.initialize()
+            self._artikel = db.get_artikel(nur_aktiv=True)
+        except Exception:
+            self._artikel = []
+        self._filtern()
+
+    def _filtern(self):
+        text = self._filter.text().strip().lower()
+        if text:
+            self._table_data = [
+                a for a in self._artikel
+                if text in (a.get("bezeichnung", "") + " " + a.get("artikelnr", "")).lower()
+            ]
+        else:
+            self._table_data = list(self._artikel)
+
+        self._table.setRowCount(len(self._table_data))
+        for r, a in enumerate(self._table_data):
+            menge = int(a.get("menge", 0))
+            vals = [
+                a.get("artikelnr", ""),
+                a.get("bezeichnung", ""),
+                a.get("kategorie", ""),
+                str(menge),
+            ]
+            for c, v in enumerate(vals):
+                item = QTableWidgetItem(v)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if c == 3 and menge <= 0:
+                    item.setForeground(QColor("#c0392b"))
+                self._table.setItem(r, c, item)
+
+    def _on_double_click(self):
+        row = self._table.currentRow()
+        if row >= 0:
+            self.accept()
+
+    def _on_accept(self):
+        row = self._table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "Auswahl", "Bitte einen Artikel auswählen.")
+            return
+        self.accept()
+
+    def get_auswahl(self) -> dict | None:
+        row = self._table.currentRow()
+        if row < 0 or row >= len(self._table_data):
+            return None
+        a = self._table_data[row]
+        return {
+            "artikel_id":  a["id"],
+            "bezeichnung": a.get("bezeichnung", ""),
+            "menge":       self._menge.value(),
+        }
+
+
 class _EinsatzDialog(QDialog):
     """Formular zum Anlegen oder Bearbeiten eines Notfalleinsatzes."""
 
@@ -1159,12 +1284,13 @@ class _EinsatzDialog(QDialog):
     def __init__(self, daten: dict | None = None, parent=None):
         super().__init__(parent)
         self._edit_daten = daten  # None = Neu, dict = Bearbeiten
+        self._verbrauch_positionen: list[dict] = []
         self.setWindowTitle(
             "✏️  Einsatz bearbeiten" if daten else "🚑  Neuen Einsatz erfassen"
         )
         self.setMinimumWidth(560)
         self.setMinimumHeight(620)
-        self.resize(580, 680)
+        self.resize(580, 720)
         self._build_ui()
         if daten:
             self._befuellen(daten)
@@ -1286,6 +1412,44 @@ class _EinsatzDialog(QDialog):
 
         layout.addWidget(grp_ma)
 
+        # ── Verbrauchsmaterial ─────────────────────────────────────────────
+        grp_mat = QGroupBox("🧰  Verbrauchsmaterial (Sanmat)")
+        grp_mat.setStyleSheet(self._GROUP_STYLE)
+        mat_layout = QVBoxLayout(grp_mat)
+        mat_layout.setSpacing(6)
+
+        entnehmer_fl = QFormLayout()
+        entnehmer_fl.setSpacing(6)
+        self._entnehmer = QLineEdit()
+        self._entnehmer.setPlaceholderText("Name des Entnehmers (Pflicht bei Materialverbrauch)")
+        self._entnehmer.setStyleSheet(self._FIELD_STYLE)
+        entnehmer_fl.addRow("Entnehmer:", self._entnehmer)
+        mat_layout.addLayout(entnehmer_fl)
+
+        self._mat_table = QTableWidget()
+        self._mat_table.setColumnCount(2)
+        self._mat_table.setHorizontalHeaderLabels(["Artikel", "Menge"])
+        self._mat_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self._mat_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self._mat_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._mat_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._mat_table.verticalHeader().setVisible(False)
+        self._mat_table.setMaximumHeight(150)
+        self._mat_table.setAlternatingRowColors(True)
+        mat_layout.addWidget(self._mat_table)
+
+        mat_btn_lay = QHBoxLayout()
+        btn_add_mat = QPushButton("➕ Artikel hinzufügen")
+        btn_add_mat.clicked.connect(self._artikel_hinzufuegen)
+        mat_btn_lay.addWidget(btn_add_mat)
+        btn_rm_mat = QPushButton("🗑 Entfernen")
+        btn_rm_mat.clicked.connect(self._artikel_entfernen)
+        mat_btn_lay.addWidget(btn_rm_mat)
+        mat_btn_lay.addStretch()
+        mat_layout.addLayout(mat_btn_lay)
+
+        layout.addWidget(grp_mat)
+
         # ── Bemerkungen ────────────────────────────────────────────────────
         grp_bem = QGroupBox("📝  Bemerkungen (optional)")
         grp_bem.setStyleSheet(self._GROUP_STYLE)
@@ -1310,6 +1474,34 @@ class _EinsatzDialog(QDialog):
 
     def _update_visibility(self):
         self._grp_grund.setVisible(self._radio_nein.isChecked())
+
+    def _artikel_hinzufuegen(self):
+        if _SanmatDB is None:
+            QMessageBox.warning(self, "Sanmat", "Sanmat-Modul nicht verfügbar.")
+            return
+        dlg = _ArtikelPickerDialog(parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            auswahl = dlg.get_auswahl()
+            if auswahl:
+                self._verbrauch_positionen.append(auswahl)
+                self._mat_tabelle_aktualisieren()
+
+    def _artikel_entfernen(self):
+        row = self._mat_table.currentRow()
+        if row >= 0:
+            del self._verbrauch_positionen[row]
+            self._mat_tabelle_aktualisieren()
+
+    def _mat_tabelle_aktualisieren(self):
+        self._mat_table.setRowCount(len(self._verbrauch_positionen))
+        for r, p in enumerate(self._verbrauch_positionen):
+            item_bez = QTableWidgetItem(p["bezeichnung"])
+            item_bez.setFlags(item_bez.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            item_menge = QTableWidgetItem(str(p["menge"]))
+            item_menge.setFlags(item_menge.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            item_menge.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+            self._mat_table.setItem(r, 0, item_bez)
+            self._mat_table.setItem(r, 1, item_menge)
 
     def _befuellen(self, d: dict):
         """Felder mit bestehenden Daten füllen."""
@@ -1345,6 +1537,13 @@ class _EinsatzDialog(QDialog):
         self._bemerkung.setPlainText(d.get("bemerkung", ""))
 
     def _on_accept(self):
+        if self._verbrauch_positionen and not self._entnehmer.text().strip():
+            QMessageBox.warning(
+                self, "Pflichtfeld",
+                "Bitte einen Entnehmer angeben.\nDieses Feld ist Pflicht wenn Verbrauchsmaterial eingetragen wurde."
+            )
+            self._entnehmer.setFocus()
+            return
         self.accept()
 
     def get_daten(self) -> dict:
@@ -1360,6 +1559,8 @@ class _EinsatzDialog(QDialog):
             angenommen       = self._radio_ja.isChecked(),
             grund_abgelehnt  = self._grund_abgelehnt.toPlainText().strip(),
             bemerkung        = self._bemerkung.toPlainText().strip(),
+            entnehmer        = self._entnehmer.text().strip(),
+            verbrauch_liste  = list(self._verbrauch_positionen),
         )
 
 
@@ -3088,10 +3289,49 @@ class _EinsaetzeTab(QWidget):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             daten = dlg.get_daten()
             try:
-                einsatz_speichern(daten)
+                einsatz_id = einsatz_speichern(daten)
                 self.refresh()
             except Exception as exc:
                 QMessageBox.critical(self, "Fehler", f"Fehler beim Speichern:\n{exc}")
+                return
+            # Verbrauchsmaterial in Sanmat buchen
+            verbrauch = daten.get("verbrauch_liste", [])
+            if verbrauch:
+                try:
+                    db = _SanmatDB()
+                    db.initialize()
+                    datum_raw = daten.get("datum", "")
+                    try:
+                        t = datum_raw.split(".")
+                        datum_iso = f"{t[2]}-{t[1]}-{t[0]}" if len(t) == 3 else datum_raw
+                    except Exception:
+                        datum_iso = datum_raw
+                    entnehmer = daten.get("entnehmer", "")
+                    stichwort = daten.get("einsatzstichwort", "") or f"Einsatz-ID {einsatz_id}"
+                    fehler = []
+                    for pos in verbrauch:
+                        ok, msg = db.entnehmen(
+                            artikel_id=pos["artikel_id"],
+                            artikel_name=pos["bezeichnung"],
+                            menge=pos["menge"],
+                            datum=datum_iso,
+                            typ="verbrauch",
+                            von=entnehmer,
+                            bemerkung=f"Einsatz: {stichwort}  (ID {einsatz_id})",
+                            negativ_erlaubt=True,
+                        )
+                        if not ok:
+                            fehler.append(f"{pos['bezeichnung']}: {msg}")
+                    if fehler:
+                        QMessageBox.warning(
+                            self, "Sanmat-Buchung",
+                            "Einige Buchungen fehlgeschlagen:\n" + "\n".join(fehler)
+                        )
+                except Exception as exc:
+                    QMessageBox.warning(
+                        self, "Sanmat-Buchung",
+                        f"Fehler beim Buchen des Verbrauchsmaterials:\n{exc}"
+                    )
 
     def _bearbeiten(self):
         e = self._aktuell()
