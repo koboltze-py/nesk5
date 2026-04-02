@@ -218,9 +218,10 @@ class ExportDialog(QDialog):
         self._fmt_gruppe = QButtonGroup(self)
         self._rb_klassisch = QRadioButton("Klassische Stärkemeldung  (bisheriges Format)")
         self._rb_dashboard = QRadioButton("Mit Dashboard-Panel links  (neues Format)")
-        self._rb_klassisch.setChecked(True)
+        self._rb_dashboard.setChecked(True)
         self._fmt_gruppe.addButton(self._rb_klassisch, 0)
         self._fmt_gruppe.addButton(self._rb_dashboard, 1)
+        self._rb_klassisch.toggled.connect(self._warn_klassisch)
         layout.addWidget(self._rb_klassisch)
         layout.addWidget(self._rb_dashboard)
 
@@ -297,6 +298,22 @@ class ExportDialog(QDialog):
         btn_row.addWidget(cancel_btn)
         btn_row.addWidget(export_btn)
         layout.addLayout(btn_row)
+
+    def _warn_klassisch(self, checked: bool):
+        if not checked:
+            return
+        from PySide6.QtWidgets import QMessageBox
+        mb = QMessageBox(self)
+        mb.setWindowTitle("Hinweis – Veraltetes Format")
+        mb.setIcon(QMessageBox.Icon.Warning)
+        mb.setText(
+            "\u26a0\ufe0f  Klassische St\u00e4rkemeldung\n\n"
+            "Dieses Format ist veraltet und sollte nur im Notfall verwendet werden,\n"
+            "wenn das Dashboard-Format nicht verf\u00fcgbar ist.\n\n"
+            'Bitte bevorzugt "Mit Dashboard-Panel links" verwenden.'
+        )
+        mb.setStandardButtons(QMessageBox.StandardButton.Ok)
+        mb.exec()
 
     def _export(self):
         # Speicherort wählen

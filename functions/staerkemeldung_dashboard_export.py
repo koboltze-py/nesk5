@@ -102,7 +102,7 @@ def _zeitgruppen_para(cell, gruppen, size=9.5):
 def _bul_farben(n):
     if n<=2: return "FF3333","KRITISCH"
     if n==3: return "E07800","EINGESCHRAENKT"
-    return "10A050","VOLLSTAENDIG"
+    return "10A050","VOLLSTÄNDIG"
 
 
 class StaerkemeldungDashboardExport:
@@ -123,10 +123,18 @@ class StaerkemeldungDashboardExport:
         self._ausschl       ={n.lower().strip() for n in (ausgeschlossene_vollnamen or set())}
         self._bul_aktiv     =bulmor_aktiv
         self._stationslt    =stationsleitung
+        # Schichtleiter-Namen (Nachname allein oder "Vorname Nachname") als Ausschluss-Set
+        sl_namen = {n.lower().strip() for n in [sl_tag_name, sl_nacht_name] if n.strip()}
         kranke_ids=set(id(m) for m in dienstplan_data.get("kranke",[]))
+        def _ist_sl(m):
+            vn = m.get("vollname","").lower().strip()
+            nachname = vn.split(",")[0].strip() if "," in vn else vn.split()[-1].lower() if vn else ""
+            return vn in sl_namen or nachname in sl_namen
         self._dispo=sorted(
             [m for m in dienstplan_data.get("dispo",[])
-             if id(m) not in kranke_ids and m.get("vollname","").lower() not in self._ausschl],
+             if id(m) not in kranke_ids
+             and m.get("vollname","").lower() not in self._ausschl
+             and not _ist_sl(m)],
             key=lambda x: x.get("start_zeit") or "ZZZZ")
         self._betreuer=sorted(
             [m for m in dienstplan_data.get("betreuer",[])
