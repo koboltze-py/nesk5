@@ -2206,6 +2206,9 @@ class MitarbeiterDokumenteWidget(QWidget):
                 oeffne_versp_dokument(pfad)
             except Exception as exc:
                 QMessageBox.warning(self, "Fehler", str(exc))
+        elif not pfad:
+            # Noch kein Dokument erstellt → Bearbeiten-Dialog öffnen
+            self._verspaetung_bearbeiten()
         else:
             QMessageBox.warning(
                 self, "Datei nicht gefunden",
