@@ -2163,34 +2163,32 @@ class _PatientenDialog(QDialog):
         return g
 
     def _build_grp_material(self) -> QGroupBox:
-        g = QGroupBox("📦  Verbrauchsmaterial")
+        g = QGroupBox("🧰  Verbrauchsmaterial (Sanmat)")
         g.setStyleSheet(self._GROUP_STYLE)
         mat_layout = QVBoxLayout(g)
         mat_layout.setSpacing(8)
-        btn_add = QPushButton("➕  Material hinzufügen")
-        btn_add.setFixedHeight(32)
-        btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_add.setStyleSheet(
-            "QPushButton{background:#107e3e;color:white;border:none;"
-            "border-radius:4px;padding:4px 14px;font-size:12px;}"
-            "QPushButton:hover{background:#0a5c2e;}"
-        )
-        btn_add.clicked.connect(self._material_hinzufuegen)
-        mat_layout.addWidget(btn_add, 0, Qt.AlignmentFlag.AlignLeft)
         self._material_table = QTableWidget()
-        self._material_table.setColumnCount(4)
-        self._material_table.setHorizontalHeaderLabels(["Material", "Menge", "Einheit", ""])
+        self._material_table.setColumnCount(2)
+        self._material_table.setHorizontalHeaderLabels(["Artikel", "Menge"])
         hh = self._material_table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self._material_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._material_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._material_table.setMaximumHeight(150)
         self._material_table.verticalHeader().setVisible(False)
+        self._material_table.setAlternatingRowColors(True)
         self._material_table.setStyleSheet("font-size:12px;")
         mat_layout.addWidget(self._material_table)
+        mat_btn_lay = QHBoxLayout()
+        btn_add = QPushButton("➕  Artikel hinzufügen")
+        btn_add.clicked.connect(self._material_hinzufuegen)
+        mat_btn_lay.addWidget(btn_add)
+        btn_rm = QPushButton("🗑  Entfernen")
+        btn_rm.clicked.connect(self._material_entfernen)
+        mat_btn_lay.addWidget(btn_rm)
+        mat_btn_lay.addStretch()
+        mat_layout.addLayout(mat_btn_lay)
         return g
 
     def _build_grp_arbeitsunfall(self) -> QGroupBox:
@@ -2310,20 +2308,16 @@ class _PatientenDialog(QDialog):
     def _aktualisiere_material_tabelle(self):
         self._material_table.setRowCount(len(self._verbrauchsmaterial_liste))
         for row, mat in enumerate(self._verbrauchsmaterial_liste):
-            self._material_table.setItem(row, 0, QTableWidgetItem(mat["material"]))
-            self._material_table.setItem(row, 1, QTableWidgetItem(str(mat["menge"])))
-            self._material_table.setItem(row, 2, QTableWidgetItem(mat["einheit"]))
-            btn_del = QPushButton("🗑")
-            btn_del.setFixedSize(28, 28)
-            btn_del.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_del.setStyleSheet(
-                "QPushButton{background:#ffcccc;border:none;border-radius:3px;}"
-                "QPushButton:hover{background:#ff9999;}"
-            )
-            btn_del.clicked.connect(lambda checked, r=row: self._material_entfernen(r))
-            self._material_table.setCellWidget(row, 3, btn_del)
+            item_bez = QTableWidgetItem(mat["material"])
+            item_bez.setFlags(item_bez.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            item_menge = QTableWidgetItem(str(mat["menge"]))
+            item_menge.setFlags(item_menge.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            item_menge.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+            self._material_table.setItem(row, 0, item_bez)
+            self._material_table.setItem(row, 1, item_menge)
 
-    def _material_entfernen(self, row: int):
+    def _material_entfernen(self):
+        row = self._material_table.currentRow()
         if 0 <= row < len(self._verbrauchsmaterial_liste):
             self._verbrauchsmaterial_liste.pop(row)
             self._aktualisiere_material_tabelle()
@@ -2859,49 +2853,65 @@ class _PatientenTab(QWidget):
         if row < 0 or row >= len(self._eintraege):
             return
         eintrag = self._eintraege[row]
+        name = eintrag.get("patient_name") or eintrag.get("patient_typ") or f"Patient {eintrag.get('id','')}"
         antwort = QMessageBox.question(
             self, "Löschen bestätigen",
-            f"Patienten-Datensatz vom {eintrag.get('datum','')} wirklich löschen?\n"
+            f"Patienten-Datensatz wirklich löschen?\n\n"
+            f"Datum:    {eintrag.get('datum','')}\n"
+            f"Patient:  {name}\n\n"
             f"Diese Aktion kann nicht rückgängig gemacht werden.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
-        if antwort == QMessageBox.StandardButton.Yes:
-            try:
-                # Sanmat-Rückbuchung: verbrauchtes Material zurück ins Lager
+        if antwort != QMessageBox.StandardButton.Yes:
+            return
+        # Prüfen ob Sanmat-Material zum Zurückbuchen vorhanden
+        rueckbuchen = False
+        rueck_mit_id = []
+        try:
+            vm_liste = lade_verbrauchsmaterial(eintrag["id"])
+            rueck_mit_id = [m for m in vm_liste if m.get("artikel_id")]
+            if rueck_mit_id and _SanmatDB is not None:
+                antwort2 = QMessageBox.question(
+                    self, "Material zurückbuchen?",
+                    f"{len(rueck_mit_id)} Artikel wurden aus dem Sanmat-Bestand verbraucht.\n\n"
+                    f"Sollen diese zurück ins Lager gebucht werden?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes,
+                )
+                rueckbuchen = (antwort2 == QMessageBox.StandardButton.Yes)
+        except Exception:
+            pass
+        try:
+            if rueckbuchen:
                 try:
-                    vm_liste = lade_verbrauchsmaterial(eintrag["id"])
-                    rueck_mit_id = [m for m in vm_liste if m.get("artikel_id")]
-                    if rueck_mit_id and _SanmatDB is not None:
-                        import time as _time
-                        db = _SanmatDB()
-                        db.initialize()
-                        datum_raw = eintrag.get("datum", "")
-                        try:
-                            t = datum_raw.split(".")
-                            datum_iso = f"{t[2]}-{t[1]}-{t[0]}" if len(t) == 3 else datum_raw
-                        except Exception:
-                            datum_iso = datum_raw
-                        entnehmer = eintrag.get("drk_ma1", "")
-                        name = eintrag.get("patient_name") or eintrag.get("patient_typ") or f"Patient {eintrag['id']}"
-                        bem = f"Rückbuchung gelöschter Pat.: {name}"
-                        for pos in rueck_mit_id:
-                            db.einlagern(
-                                artikel_id=pos["artikel_id"],
-                                artikel_name=pos["material"],
-                                menge=pos["menge"],
-                                datum=datum_iso,
-                                von=entnehmer,
-                                bemerkung=bem,
-                                typ="rueckgabe",
-                            )
+                    db = _SanmatDB()
+                    db.initialize()
+                    datum_raw = eintrag.get("datum", "")
+                    try:
+                        t = datum_raw.split(".")
+                        datum_iso = f"{t[2]}-{t[1]}-{t[0]}" if len(t) == 3 else datum_raw
+                    except Exception:
+                        datum_iso = datum_raw
+                    entnehmer = eintrag.get("drk_ma1", "")
+                    bem = f"Rückbuchung gelöschter Pat.: {name}"
+                    for pos in rueck_mit_id:
+                        db.einlagern(
+                            artikel_id=pos["artikel_id"],
+                            artikel_name=pos["material"],
+                            menge=pos["menge"],
+                            datum=datum_iso,
+                            von=entnehmer,
+                            bemerkung=bem,
+                            typ="rueckgabe",
+                        )
                 except Exception:
-                    pass  # Rückbuchung scheitert lautlos – Löschung trotzdem durchführen
-                patient_loeschen(eintrag["id"])
-                self.refresh()
-                QMessageBox.information(self, "Gelöscht", "Patient wurde gelöscht.")
-            except Exception as exc:
-                QMessageBox.critical(self, "Fehler beim Löschen", str(exc))
+                    pass
+            patient_loeschen(eintrag["id"])
+            self.refresh()
+            QMessageBox.information(self, "Gelöscht", "Patient wurde gelöscht.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Fehler beim Löschen", str(exc))
 
     def _material_anzeigen(self):
         row = self._table.currentRow()
@@ -3410,46 +3420,58 @@ class _EinsaetzeTab(QWidget):
             f"Stichwort:   {e.get('einsatzstichwort', '')}\n"
             f"Einsatzort:  {e.get('einsatzort', '')}",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if antwort == QMessageBox.StandardButton.Yes:
-            try:
-                # Sanmat-Rückbuchung: Buchungen mit "(ID <einsatz_id>)" suchen und zurückbuchen
+        if antwort != QMessageBox.StandardButton.Yes:
+            return
+        # Prüfen ob Sanmat-Buchungen zum Zurückbuchen vorhanden
+        rueckbuchen = False
+        sanmat_buchungen = []
+        try:
+            if _SanmatDB is not None:
+                import re as _re
+                db = _SanmatDB()
+                db.initialize()
+                alle = db.get_buchungen(suche=f"(ID {e['id']})", typ="verbrauch", limit=500)
+                ziel_pattern = _re.compile(rf"\(ID {e['id']}\)")
+                sanmat_buchungen = [b for b in alle if ziel_pattern.search(b.get("bemerkung", ""))]
+                if sanmat_buchungen:
+                    antwort2 = QMessageBox.question(
+                        self, "Material zurückbuchen?",
+                        f"{len(sanmat_buchungen)} Artikel wurden aus dem Sanmat-Bestand verbraucht.\n\n"
+                        f"Sollen diese zurück ins Lager gebucht werden?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.Yes,
+                    )
+                    rueckbuchen = (antwort2 == QMessageBox.StandardButton.Yes)
+        except Exception:
+            pass
+        try:
+            if rueckbuchen:
                 try:
-                    if _SanmatDB is not None:
-                        db = _SanmatDB()
-                        db.initialize()
-                        buchungen = db.get_buchungen(
-                            suche=f"(ID {e['id']})",
-                            typ="verbrauch",
-                            limit=500,
+                    datum_raw = e.get("datum", "")
+                    try:
+                        t = datum_raw.split(".")
+                        datum_iso = f"{t[2]}-{t[1]}-{t[0]}" if len(t) == 3 else datum_raw
+                    except Exception:
+                        datum_iso = datum_raw
+                    stichwort = e.get("einsatzstichwort", "") or f"Einsatz-ID {e['id']}"
+                    for buch in sanmat_buchungen:
+                        db.einlagern(
+                            artikel_id=buch["artikel_id"],
+                            artikel_name=buch["artikel_name"],
+                            menge=abs(buch["menge"]),
+                            datum=datum_iso,
+                            von=e.get("drk_ma1", ""),
+                            bemerkung=f"Rückbuchung gelöschter Einsatz: {stichwort}  (ID {e['id']})",
+                            typ="rueckgabe",
                         )
-                        # Nur die exakt passende Einsatz-ID verwenden
-                        import re as _re
-                        ziel_pattern = _re.compile(rf"\(ID {e['id']}\)")
-                        datum_raw = e.get("datum", "")
-                        try:
-                            t = datum_raw.split(".")
-                            datum_iso = f"{t[2]}-{t[1]}-{t[0]}" if len(t) == 3 else datum_raw
-                        except Exception:
-                            datum_iso = datum_raw
-                        stichwort = e.get("einsatzstichwort", "") or f"Einsatz-ID {e['id']}"
-                        for buch in buchungen:
-                            if ziel_pattern.search(buch.get("bemerkung", "")):
-                                db.einlagern(
-                                    artikel_id=buch["artikel_id"],
-                                    artikel_name=buch["artikel_name"],
-                                    menge=abs(buch["menge"]),
-                                    datum=datum_iso,
-                                    von=e.get("drk_ma1", ""),
-                                    bemerkung=f"Rückbuchung gelöschter Einsatz: {stichwort}  (ID {e['id']})",
-                                    typ="rueckgabe",
-                                )
                 except Exception:
-                    pass  # Rückbuchung scheitert lautlos – Löschung trotzdem durchführen
-                einsatz_loeschen(e["id"])
-                self.refresh()
-            except Exception as exc:
-                QMessageBox.critical(self, "Fehler", f"Fehler beim Löschen:\n{exc}")
+                    pass
+            einsatz_loeschen(e["id"])
+            self.refresh()
+        except Exception as exc:
+            QMessageBox.critical(self, "Fehler", f"Fehler beim Löschen:\n{exc}")
 
     # ── Export-Helfer ─────────────────────────────────────────────────────────
 
