@@ -7,7 +7,8 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+from config import BASE_DIR as _BASE_DIR
+BASE_DIR = Path(_BASE_DIR)
 
 VORLAGE_PFAD = (
     BASE_DIR / "Daten" / "Spät" / "FO_CGN_27_Unpünktlicher Dienstantritt.docx"
