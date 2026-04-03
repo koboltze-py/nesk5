@@ -240,7 +240,8 @@ class VerbrauchView(QWidget):
                 # "Einsatz: Intern 2" → "Intern 2"
                 einsatz_name = re.sub(r"^Einsatz:\s*", "", bem_ohne_id).strip()
                 icon = "🚑"
-            else:
+                typ_tag = "Einsatz"
+            elif bem_ohne_id.startswith("Pat.-Station"):
                 # "Pat.-Station [Passagier]: Max Mustermann" → "Passagier"
                 m_typ = re.search(r"\[([^\]]+)\]", bem_ohne_id)
                 if m_typ:
@@ -248,6 +249,11 @@ class VerbrauchView(QWidget):
                 else:
                     einsatz_name = re.sub(r"^Pat\.-Station[:\s]*", "", bem_ohne_id).strip()
                 icon = "🏥"
+                typ_tag = "Pat. Station"
+            else:
+                einsatz_name = bem_ohne_id
+                icon = "📋"
+                typ_tag = ""
 
             def _cell(text: str, bg: QColor, fg: QColor | None = None,
                       bold: bool = False, align=None) -> QTableWidgetItem:
@@ -266,7 +272,7 @@ class VerbrauchView(QWidget):
                 self._table.setItem(r, 0, _cell(datum_fmt, self._COL_HEADER_BG, self._COL_HEADER_FG, bold=True))
                 self._table.setItem(r, 1, _cell(f"{icon}  {einsatz_name}", self._COL_HEADER_BG, self._COL_HEADER_FG, bold=True))
                 self._table.setItem(r, 3, _cell(b.get("von", ""), self._COL_HEADER_BG, self._COL_HEADER_FG, bold=True))
-                self._table.setItem(r, 4, _cell("", self._COL_HEADER_BG, self._COL_HEADER_FG))
+                self._table.setItem(r, 4, _cell(typ_tag, self._COL_HEADER_BG, QColor("#b3d1ff"), bold=False))
                 self._table.setSpan(r, 1, 1, 2)  # Artikel + Menge-Spalte zusammenführen
                 self._table.setRowHeight(r, 26)
 
