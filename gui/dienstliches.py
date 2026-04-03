@@ -2807,8 +2807,9 @@ class _PatientenTab(QWidget):
                             datum_iso = datum_raw
                         entnehmer = daten.get("drk_ma1", "")
                         gid = int(_time.time())
-                        name = daten.get("patient_name") or daten.get("patient_typ") or f"Patient {patient_id}"
-                        stichwort = f"Pat.-Station: {name}  (GID {gid})"
+                        patient_typ = daten.get("patient_typ", "Patient")
+                        name = daten.get("patient_name") or patient_typ or f"Patient {patient_id}"
+                        stichwort = f"Pat.-Station [{patient_typ}]: {name}  (GID {gid})"
                         fehler = []
                         for pos in verbrauch_mit_id:
                             ok, msg = db.entnehmen(

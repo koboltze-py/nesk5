@@ -197,29 +197,25 @@ class VerbrauchView(QWidget):
             typ="verbrauch", datum_von=von_str, datum_bis=bis_str, suche=suche
         )
 
-        # Gruppen-Schlüssel je Zeile: "ID_43" (Einsatz) oder "GID_..." (manuell) oder None
+        # Gruppen-Schlüssel je Zeile: "ID_43" (Einsatz) oder "GID_..." (manuell/Pat.) oder None
         eid_of: list[str | None] = []
-        eid_count: dict[str, int] = {}
         for b in rows:
             m = re.search(r"\((G?ID)\s*(\d+)\)", b.get("bemerkung", "") or "")
             eid: str | None = f"{m.group(1)}_{m.group(2)}" if m else None
             eid_of.append(eid)
-            if eid is not None:
-                eid_count[eid] = eid_count.get(eid, 0) + 1
 
         # Anzeigeliste aufbauen: (kind, eid, buchung)
         # kind = 'header' | 'item' | 'flat'
         display: list[tuple] = []
         seen_eids: set[str] = set()
         for b, eid in zip(rows, eid_of):
-            multi = eid is not None and eid_count.get(eid, 0) > 1
-            if multi:
+            if eid is not None:
                 if eid not in seen_eids:
                     seen_eids.add(eid)
                     display.append(("header", eid, b))
                 display.append(("item", eid, b))
             else:
-                display.append(("flat", eid, b))
+                display.append(("flat", None, b))
 
         self._table.clearSpans()
         self._table.blockSignals(True)
@@ -238,8 +234,20 @@ class VerbrauchView(QWidget):
                 datum_fmt = datum_raw
 
             bemerkung_raw = b.get("bemerkung", "") or ""
-            einsatz_name  = re.sub(r"\s*\(G?ID\s*\d+\).*", "", bemerkung_raw).strip()
-            icon = "🚑" if (eid or "").startswith("ID_") else "📋"
+            # Header-Text: Einsatz → nur Stichwort, Pat.-Station → patient_typ aus []
+            bem_ohne_id = re.sub(r"\s*\(G?ID\s*\d+\).*", "", bemerkung_raw).strip()
+            if (eid or "").startswith("ID_"):
+                # "Einsatz: Intern 2" → "Intern 2"
+                einsatz_name = re.sub(r"^Einsatz:\s*", "", bem_ohne_id).strip()
+                icon = "🚑"
+            else:
+                # "Pat.-Station [Passagier]: Max Mustermann" → "Passagier"
+                m_typ = re.search(r"\[([^\]]+)\]", bem_ohne_id)
+                if m_typ:
+                    einsatz_name = m_typ.group(1).strip()
+                else:
+                    einsatz_name = re.sub(r"^Pat\.-Station[:\s]*", "", bem_ohne_id).strip()
+                icon = "🏥"
 
             def _cell(text: str, bg: QColor, fg: QColor | None = None,
                       bold: bool = False, align=None) -> QTableWidgetItem:
