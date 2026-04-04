@@ -656,6 +656,7 @@ class SlotMachineDialog(QDialog):
         self._hold_jps:   dict[tuple[int,int], str | None] = {}  # (ri,row)→JP-Label
         self._hold_respins: int = 0
         self._hold_bet:     int = 0
+        self._wait_ticks:   int = 0  # Watchdog-Zähler für stuck "waiting"-Mode
 
         # Free Games
         self._fs_left:      int              = 0
@@ -946,7 +947,7 @@ class SlotMachineDialog(QDialog):
 
     def _check_can_spin(self) -> None:
         can = (self._mode == "idle"
-               and self._fs_left == 0
+               and self._fs_left <= 0
                and not self._hold_reels
                and self._credits >= BET_LEVELS[self._bet_idx])
         self._spin_btn.setEnabled(can)
@@ -1023,6 +1024,33 @@ class SlotMachineDialog(QDialog):
                 self._stop_timers.clear()
                 self._mode = "waiting"
                 self._evaluate_holdspin()
+
+        # Watchdog: zu lange in "waiting" → Notfall-Reset (~6 s bei 26 ms Tick)
+        if self._mode == "waiting":
+            self._wait_ticks += 1
+            if self._wait_ticks > 230:
+                self._force_idle()
+        else:
+            self._wait_ticks = 0
+
+    def _force_idle(self) -> None:
+        """Notfall-Reset: setzt das Spiel aus festegefahrenem 'waiting'-Mode zurück."""
+        self._stop_timers.clear()
+        self._hold_reels.clear()
+        self._hold_vals.clear()
+        self._hold_jps.clear()
+        self._hold_respins = 0
+        self._fs_left  = 0
+        self._fs_total = 0
+        self._mode_lbl.hide()
+        for r in self._reels:
+            r.held      = False
+            r.hold_mode = False
+            r.clear_ball_vals()
+        self._mode       = "idle"
+        self._wait_ticks = 0
+        self._res_lbl.setText("⚡  Bitte erneut drehen")
+        self._check_can_spin()
 
     # ── Ball-Verarbeitung ──────────────────────────────────────────────────────
     def _process_balls(self, grid: list[list[int]], bet: int
@@ -1430,6 +1458,7 @@ class SlotMachineDialog(QDialog):
         spins = self._fs_total
         wins  = self._fs_wins
         self._fs_total = 0
+        self._fs_left  = 0
         self._fs_wins  = 0
         self._res_lbl.setText(
             f"👸  Free Games beendet!  {spins} Spins  ·  Gewinn: +{wins} Credits!"
