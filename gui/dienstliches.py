@@ -90,7 +90,8 @@ CREATE TABLE IF NOT EXISTS patienten (
     drk_ma1                 TEXT    DEFAULT '',
     drk_ma2                 TEXT    DEFAULT '',
     weitergeleitet          TEXT    DEFAULT '',
-    bemerkung               TEXT    DEFAULT ''
+    bemerkung               TEXT    DEFAULT '',
+    sanmat_gid              INTEGER DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS verbrauchsmaterial (
@@ -136,6 +137,7 @@ def _ensured_patienten_db() -> str:
         ("medikamente_gegeben_was", "TEXT DEFAULT ''"),
         ("arbeitsunfall",           "INTEGER DEFAULT 0"),
         ("arbeitsunfall_details",   "TEXT DEFAULT ''"),
+        ("sanmat_gid",              "INTEGER DEFAULT NULL"),
     ]
     os.makedirs(_EINSATZ_DB_DIR, exist_ok=True)
     con = sqlite3.connect(_PATIENTEN_DB_PFAD, timeout=5)
@@ -357,6 +359,26 @@ def patient_aktualisieren(row_id: int, daten: dict, verbrauchsmaterial: list[dic
 
 
 def patient_loeschen(row_id: int) -> None:
+    # Sanmat-Verbrauch prüfen: entweder löschen oder als Quelle-gelöscht markieren
+    if _SanmatDB is not None:
+        try:
+            _sanmat = _SanmatDB()
+            _sanmat.initialize()
+            with _patienten_db() as _con:
+                _row = _con.execute(
+                    "SELECT sanmat_gid, patient_name, patient_typ FROM patienten WHERE id=?",
+                    (row_id,)
+                ).fetchone()
+            if _row and _row["sanmat_gid"]:
+                _gid = _row["sanmat_gid"]
+                _name = _row["patient_name"] or _row["patient_typ"] or f"Patient {row_id}"
+                _sanmat.handle_quelle_geloescht(
+                    referenz_id=str(_gid),
+                    typ="GID",
+                    quelle_label=f"Pat.-Station: {_name}",
+                )
+        except Exception:
+            pass
     with _patienten_db() as con:
         con.execute("DELETE FROM patienten WHERE id=?", (row_id,))
     try:
@@ -559,6 +581,25 @@ def einsatz_aktualisieren(row_id: int, daten: dict) -> None:
 
 
 def einsatz_loeschen(row_id: int) -> None:
+    # Sanmat-Verbrauch prüfen: entweder löschen oder als Quelle-gelöscht markieren
+    if _SanmatDB is not None:
+        try:
+            _sanmat = _SanmatDB()
+            _sanmat.initialize()
+            stichwort = f"Einsatz-ID {row_id}"
+            with _db() as _con:
+                _row = _con.execute(
+                    "SELECT einsatzstichwort FROM einsaetze WHERE id=?", (row_id,)
+                ).fetchone()
+                if _row:
+                    stichwort = _row["einsatzstichwort"] or stichwort
+            _sanmat.handle_quelle_geloescht(
+                referenz_id=str(row_id),
+                typ="ID",
+                quelle_label=f"Einsatz: {stichwort}",
+            )
+        except Exception:
+            pass
     with _db() as con:
         con.execute("DELETE FROM einsaetze WHERE id=?", (row_id,))
     try:
@@ -2943,6 +2984,10 @@ class _PatientenTab(QWidget):
                         patient_typ = daten.get("patient_typ", "Patient")
                         name = daten.get("patient_name") or patient_typ or f"Patient {patient_id}"
                         stichwort = f"Pat.-Station [{patient_typ}]: {name}  (GID {gid})"
+                        # GID im Patientendatensatz speichern für spätere Rückverfolgung
+                        with _patienten_db() as _pc:
+                            _pc.execute("UPDATE patienten SET sanmat_gid=? WHERE id=?",
+                                        (gid, patient_id))
                         fehler = []
                         for pos in verbrauch_mit_id:
                             ok, msg = db.entnehmen(

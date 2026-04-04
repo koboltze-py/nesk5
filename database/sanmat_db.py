@@ -551,6 +551,65 @@ class SanmatDB:
         finally:
             conn.close()
 
+    def get_buchungen_fuer_referenz(self, referenz_id: str, typ: str = "ID") -> list[dict]:
+        """Gibt alle Buchungen zurück, deren bemerkung '(ID {referenz_id})' oder
+        '(GID {referenz_id})' enthält."""
+        pattern = f"({typ} {referenz_id})"
+        conn = self._conn()
+        try:
+            cur = conn.execute(
+                "SELECT id, artikel_id, artikel_name, menge, typ, von, bemerkung, datum "
+                "FROM buchungen WHERE bemerkung LIKE ?",
+                (f"%{pattern}%",)
+            )
+            return [dict(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def handle_quelle_geloescht(self, referenz_id: str, typ: str = "ID",
+                                 quelle_label: str = "") -> tuple[str, int, int]:
+        """Wird aufgerufen wenn ein Einsatz oder Patient gelöscht wird.
+
+        - Alle Buchungen dieser Referenz werden gesucht.
+        - Wenn Netto-Verbrauch aller Artikel == 0 (alles zurückgebucht):
+          → alle Buchungen inkl. Bestandsrückkehr löschen → gibt ('geloescht', n, m)
+        - Sonst: Hinweis '⚠ QUELLE GELÖSCHT' an bemerkung anhängen:
+          → gibt ('markiert', n, m)
+        - Keine Buchungen gefunden: gibt ('leer', 0, 0)
+        """
+        buchungen = self.get_buchungen_fuer_referenz(referenz_id, typ)
+        if not buchungen:
+            return ("leer", 0, 0)
+
+        # Netto-Verbrauch pro Artikel berechnen (menge ist negativ für Verbrauch)
+        netto: dict[int, int] = {}
+        for b in buchungen:
+            aid = b["artikel_id"] or 0
+            netto[aid] = netto.get(aid, 0) + b["menge"]
+
+        alles_zurueck = all(v == 0 for v in netto.values())
+
+        if alles_zurueck:
+            for b in buchungen:
+                self.delete_buchung(b["id"])
+            return ("geloescht", len(buchungen), len(netto))
+        else:
+            label = quelle_label or f"{typ} {referenz_id}"
+            hinweis = f"  ⚠ QUELLE GELÖSCHT [{label}]"
+            conn = self._conn()
+            try:
+                for b in buchungen:
+                    if "QUELLE GELÖSCHT" not in (b["bemerkung"] or ""):
+                        conn.execute(
+                            "UPDATE buchungen SET bemerkung = bemerkung || ? WHERE id = ?",
+                            (hinweis, b["id"])
+                        )
+                conn.commit()
+            finally:
+                conn.close()
+            verbraucht_anzahl = sum(1 for v in netto.values() if v != 0)
+            return ("markiert", len(buchungen), verbraucht_anzahl)
+
     def restore_buchung(self, snapshot: dict) -> tuple[bool, str]:
         """Stellt eine gelöschte Buchung aus einem Snapshot wieder her."""
         conn = self._conn()

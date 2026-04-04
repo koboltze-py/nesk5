@@ -269,10 +269,20 @@ class VerbrauchView(QWidget):
                 return it
 
             if kind == "header":
-                self._table.setItem(r, 0, _cell(datum_fmt, self._COL_HEADER_BG, self._COL_HEADER_FG, bold=True))
-                self._table.setItem(r, 1, _cell(f"{icon}  {einsatz_name}", self._COL_HEADER_BG, self._COL_HEADER_FG, bold=True))
-                self._table.setItem(r, 3, _cell(b.get("von", ""), self._COL_HEADER_BG, self._COL_HEADER_FG, bold=True))
-                self._table.setItem(r, 4, _cell(typ_tag, self._COL_HEADER_BG, QColor("#b3d1ff"), bold=False))
+                # Warnung wenn Quelle (Einsatz/Patient) bereits gelöscht wurde
+                quelle_geloescht = "QUELLE GELÖSCHT" in bemerkung_raw
+                if quelle_geloescht:
+                    hdr_bg = QColor("#5c1a1a")
+                    hdr_fg = QColor("#ff9999")
+                    header_label = f"⚠  {icon}  {einsatz_name}  [QUELLE GELÖSCHT]"
+                else:
+                    hdr_bg = self._COL_HEADER_BG
+                    hdr_fg = self._COL_HEADER_FG
+                    header_label = f"{icon}  {einsatz_name}"
+                self._table.setItem(r, 0, _cell(datum_fmt, hdr_bg, hdr_fg, bold=True))
+                self._table.setItem(r, 1, _cell(header_label, hdr_bg, hdr_fg, bold=True))
+                self._table.setItem(r, 3, _cell(b.get("von", ""), hdr_bg, hdr_fg, bold=True))
+                self._table.setItem(r, 4, _cell(typ_tag, hdr_bg, QColor("#ffaaaa") if quelle_geloescht else QColor("#b3d1ff"), bold=False))
                 self._table.setSpan(r, 1, 1, 2)  # Artikel + Menge-Spalte zusammenführen
                 self._table.setRowHeight(r, 26)
 
