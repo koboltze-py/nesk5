@@ -3044,47 +3044,7 @@ class _PatientenTab(QWidget):
         )
         if antwort != QMessageBox.StandardButton.Yes:
             return
-        # Prüfen ob Sanmat-Material zum Zurückbuchen vorhanden
-        rueck_auswahl = []
         try:
-            vm_liste = lade_verbrauchsmaterial(eintrag["id"])
-            rueck_mit_id = [m for m in vm_liste if m.get("artikel_id")]
-            if rueck_mit_id and _SanmatDB is not None:
-                artikel_dlg = _RueckbuchungsDialog(
-                    artikel=[{"name": m["material"], "menge": m["menge"],
-                               "artikel_id": m["artikel_id"]} for m in rueck_mit_id],
-                    titel="Material zurückbuchen?",
-                    parent=self,
-                )
-                if artikel_dlg.exec() == QDialog.DialogCode.Accepted:
-                    rueck_auswahl = artikel_dlg.get_auswahl()
-        except Exception:
-            pass
-        try:
-            if rueck_auswahl:
-                try:
-                    db = _SanmatDB()
-                    db.initialize()
-                    datum_raw = eintrag.get("datum", "")
-                    try:
-                        t = datum_raw.split(".")
-                        datum_iso = f"{t[2]}-{t[1]}-{t[0]}" if len(t) == 3 else datum_raw
-                    except Exception:
-                        datum_iso = datum_raw
-                    entnehmer = eintrag.get("drk_ma1", "")
-                    bem = f"Rückbuchung gelöschter Pat.: {name}"
-                    for pos in rueck_auswahl:
-                        db.einlagern(
-                            artikel_id=pos["artikel_id"],
-                            artikel_name=pos["name"],
-                            menge=pos["menge"],
-                            datum=datum_iso,
-                            von=entnehmer,
-                            bemerkung=bem,
-                            typ="rueckgabe",
-                        )
-                except Exception:
-                    pass
             patient_loeschen(eintrag["id"])
             self.refresh()
             QMessageBox.information(self, "Gelöscht", "Patient wurde gelöscht.")
@@ -3602,50 +3562,7 @@ class _EinsaetzeTab(QWidget):
         )
         if antwort != QMessageBox.StandardButton.Yes:
             return
-        # Prüfen ob Sanmat-Buchungen zum Zurückbuchen vorhanden
-        rueck_auswahl = []
-        db_ein = None
         try:
-            if _SanmatDB is not None:
-                import re as _re
-                db_ein = _SanmatDB()
-                db_ein.initialize()
-                alle = db_ein.get_buchungen(suche=f"(ID {e['id']})", typ="verbrauch", limit=500)
-                ziel_pattern = _re.compile(rf"\(ID {e['id']}\)")
-                sanmat_buchungen = [b for b in alle if ziel_pattern.search(b.get("bemerkung", ""))]
-                if sanmat_buchungen:
-                    artikel_dlg = _RueckbuchungsDialog(
-                        artikel=[{"name": b["artikel_name"], "menge": abs(b["menge"]),
-                                   "artikel_id": b["artikel_id"]} for b in sanmat_buchungen],
-                        titel="Material zurückbuchen?",
-                        parent=self,
-                    )
-                    if artikel_dlg.exec() == QDialog.DialogCode.Accepted:
-                        rueck_auswahl = artikel_dlg.get_auswahl()
-        except Exception:
-            pass
-        try:
-            if rueck_auswahl and db_ein is not None:
-                try:
-                    datum_raw = e.get("datum", "")
-                    try:
-                        t = datum_raw.split(".")
-                        datum_iso = f"{t[2]}-{t[1]}-{t[0]}" if len(t) == 3 else datum_raw
-                    except Exception:
-                        datum_iso = datum_raw
-                    stichwort = e.get("einsatzstichwort", "") or f"Einsatz-ID {e['id']}"
-                    for pos in rueck_auswahl:
-                        db_ein.einlagern(
-                            artikel_id=pos["artikel_id"],
-                            artikel_name=pos["name"],
-                            menge=pos["menge"],
-                            datum=datum_iso,
-                            von=e.get("drk_ma1", ""),
-                            bemerkung=f"Rückbuchung gelöschter Einsatz: {stichwort}  (ID {e['id']})",
-                            typ="rueckgabe",
-                        )
-                except Exception:
-                    pass
             einsatz_loeschen(e["id"])
             self.refresh()
         except Exception as exc:
