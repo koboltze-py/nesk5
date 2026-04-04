@@ -1139,51 +1139,129 @@ def _btn_light(text: str) -> QPushButton:
 # ──────────────────────────────────────────────────────────────────────────────
 
 class _RueckbuchungsDialog(QDialog):
-    """Zeigt alle verbrauchten Artikel mit je einem Mengen-SpinBox zur Rückbuchung."""
+    """Tabelle: Artikel | Verbraucht | Zurückbuchen (SpinBox) – mit Checkbox je Zeile."""
 
     def __init__(self, artikel: list[dict], titel: str = "Rückbuchung", parent=None):
         """
-        artikel: list of dicts mit Schlüsseln 'name' (str) und 'menge' (int, max. rückbuchbar)
+        artikel: list of dicts mit 'name' (str), 'menge' (int), 'artikel_id' (int)
         """
         super().__init__(parent)
-        self.setWindowTitle(titel)
-        self.setMinimumWidth(440)
+        self.setWindowTitle("📦  " + titel)
+        self.setMinimumWidth(560)
+        self.setMinimumHeight(120 + min(len(artikel), 10) * 36)
+
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
-        info = QLabel("Wähle für jeden Artikel die Rückbuchungsmenge (0 = nicht zurückbuchen):")
+        info = QLabel("Wähle welche Artikel und in welcher Menge zurückgebucht werden sollen:")
         info.setWordWrap(True)
         info.setStyleSheet("font-size:12px; color:#333;")
         layout.addWidget(info)
 
-        form = QFormLayout()
-        form.setSpacing(8)
-        self._spins: list[tuple[dict, QSpinBox]] = []
-        for art in artikel:
+        # Tabelle: ✓ | Artikel | Verbraucht | Zurückbuchen
+        self._table = QTableWidget(len(artikel), 4)
+        self._table.setHorizontalHeaderLabels(["✓", "Artikel", "Verbraucht", "Zurückbuchen"])
+        hh = self._table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self._table.setAlternatingRowColors(True)
+        self._table.setStyleSheet("font-size:12px;")
+
+        self._rows: list[tuple[dict, QCheckBox, QSpinBox]] = []
+
+        for r, art in enumerate(artikel):
+            max_menge = art["menge"]
+
+            # Spalte 0: Checkbox
+            chk = QCheckBox()
+            chk.setChecked(True)
+            chk_widget = QWidget()
+            chk_lay = QHBoxLayout(chk_widget)
+            chk_lay.setContentsMargins(6, 0, 0, 0)
+            chk_lay.addWidget(chk)
+            self._table.setCellWidget(r, 0, chk_widget)
+
+            # Spalte 1: Artikelname
+            name_item = QTableWidgetItem(art["name"])
+            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self._table.setItem(r, 1, name_item)
+
+            # Spalte 2: Verbraucht (schreibgeschützt)
+            verbraucht_item = QTableWidgetItem(str(max_menge))
+            verbraucht_item.setFlags(verbraucht_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            verbraucht_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+            verbraucht_item.setForeground(QColor("#c0392b"))
+            self._table.setItem(r, 2, verbraucht_item)
+
+            # Spalte 3: SpinBox Rückbuchungsmenge
             spin = QSpinBox()
             spin.setMinimum(0)
-            spin.setMaximum(art["menge"])
-            spin.setValue(art["menge"])  # Standard: alles zurückbuchen
-            spin.setFixedWidth(80)
-            form.addRow(f"{art['name']} (max. {art['menge']}):", spin)
-            self._spins.append((art, spin))
-        layout.addLayout(form)
+            spin.setMaximum(max_menge)
+            spin.setValue(max_menge)
+            spin.setFixedWidth(75)
+            spin_widget = QWidget()
+            spin_lay = QHBoxLayout(spin_widget)
+            spin_lay.setContentsMargins(4, 2, 4, 2)
+            spin_lay.addWidget(spin)
+            self._table.setCellWidget(r, 3, spin_widget)
+
+            # Checkbox deaktiviert SpinBox
+            def _on_chk(state, s=spin):
+                s.setEnabled(bool(state))
+                if not state:
+                    s.setValue(0)
+                else:
+                    s.setValue(s.maximum())
+            chk.stateChanged.connect(_on_chk)
+
+            self._rows.append((art, chk, spin))
+            self._table.setRowHeight(r, 34)
+
+        layout.addWidget(self._table)
+
+        # Alle / Keine Buttons
+        sel_row = QHBoxLayout()
+        btn_alle = QPushButton("☑  Alle")
+        btn_alle.setFixedWidth(80)
+        btn_alle.clicked.connect(self._alle_auswaehlen)
+        btn_keine = QPushButton("☐  Keine")
+        btn_keine.setFixedWidth(80)
+        btn_keine.clicked.connect(self._keine_auswaehlen)
+        sel_row.addWidget(btn_alle)
+        sel_row.addWidget(btn_keine)
+        sel_row.addStretch()
+        layout.addLayout(sel_row)
 
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         btns.button(QDialogButtonBox.StandardButton.Ok).setText("✅  Zurückbuchen")
-        btns.button(QDialogButtonBox.StandardButton.Cancel).setText("⛔  Nicht zurückbuchen")
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText("⛔  Nichts zurückbuchen")
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
 
+    def _alle_auswaehlen(self):
+        for art, chk, spin in self._rows:
+            chk.setChecked(True)
+            spin.setValue(spin.maximum())
+
+    def _keine_auswaehlen(self):
+        for art, chk, spin in self._rows:
+            chk.setChecked(False)
+            spin.setValue(0)
+
     def get_auswahl(self) -> list[dict]:
         """Gibt Liste der Artikel mit gewünschter Rückbuchungsmenge > 0 zurück."""
         ergebnis = []
-        for art, spin in self._spins:
+        for art, chk, spin in self._rows:
             menge = spin.value()
-            if menge > 0:
+            if chk.isChecked() and menge > 0:
                 ergebnis.append({**art, "menge": menge})
         return ergebnis
 
