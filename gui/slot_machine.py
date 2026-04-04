@@ -424,6 +424,9 @@ class _Reel(QWidget):
         self.hold_mode:     bool              = False  # Hold-Spin-Modus: nicht-Bälle abdunkeln
         self.sweat:   bool         = False   # Sweat-Walze (Free Games)
         self._sw:     float        = 0.0    # Animations-Phase
+        # Per-Zell-Animation (jede Zelle = unabhängiges 1x1-Reel im Hold & Spin)
+        self._cell_phase:   list[float] = [0.0, 0.0, 0.0]  # -1=pending >0=dreht 0=fertig
+        self._cell_target:  list[int]   = [-1,  -1,  -1  ]  # Ziel-Symbol pro Zeile
 
     # ── Sichtbare Symbole ──────────────────────────────────────────────────────
     def visible_symbols(self) -> list[int]:
@@ -485,6 +488,15 @@ class _Reel(QWidget):
         self.update()
     # ── Tick ───────────────────────────────────────────────────────────────────
     def tick(self) -> bool:
+        # Per-Zell-Animation – laeuft immer, auch bei held=True
+        for _row in range(_ROWS):
+            if self._cell_phase[_row] > 0:
+                self._cell_phase[_row] -= 1.0
+                if self._cell_phase[_row] <= 0:
+                    self._cell_phase[_row] = 0.0
+                    _base = int(self._pos) % self._N
+                    self._band[(_base + _row) % self._N] = self._cell_target[_row]
+
         if self.held:
             self._ht += 0.09
             if self._flash > 0:
@@ -551,12 +563,19 @@ class _Reel(QWidget):
             fade = min(1.0, dist_top / (SH * 0.48), dist_bottom / (SH * 0.48))
             fade = max(0.0, fade)
 
-            # Im Hold-Modus nicht-Ball Symbole stark abdunkeln
+            # Per-Zell-Animation ueberschreibt Symbol + Helligkeit
             sym_fade = fade
-            if (self.hold_mode and 0 <= k < _ROWS
-                    and sym_i not in IS_BALL
-                    and self._ball_vals[k] is None):
-                sym_fade = fade * 0.15
+            if 0 <= k < _ROWS:
+                _ph = self._cell_phase[k]
+                if _ph < 0:           # pending: noch nicht gestartet
+                    sym_i    = _POOL[int(self._ht * 8) % len(_POOL)]
+                    sym_fade = fade * 0.28
+                elif _ph > 0:         # aktiv drehend: Symbol-Zyklieren
+                    sym_i    = _POOL[int(_ph * 3.5) % len(_POOL)]
+                    sym_fade = fade * 0.55
+                elif (self.hold_mode and sym_i not in IS_BALL
+                        and self._ball_vals[k] is None):
+                    sym_fade = fade * 0.15
             draw_symbol(p, sym_i, W / 2.0, cy, SH * 0.38, sym_fade)
 
             # Ball-Kreditwert-Badge mit optionalem Jackpot-Label
@@ -1019,8 +1038,8 @@ class SlotMachineDialog(QDialog):
                 self._evaluate_freespin()
 
         elif self._mode == "holdspinning":
-            non_held = [i for i in range(_REELS) if i not in self._hold_reels]
-            if (not non_held) or all(self._reels[i].stopped for i in non_held):
+            # Fertig wenn alle Zellen aller Reels ihre Animation abgeschlossen haben
+            if all(r.cell_anim_done for r in self._reels):
                 self._stop_timers.clear()
                 self._mode = "waiting"
                 self._evaluate_holdspin()
@@ -1167,36 +1186,44 @@ class SlotMachineDialog(QDialog):
         QTimer.singleShot(1600, self._run_holdspin)
 
     def _run_holdspin(self) -> None:
-        non_held = [i for i in range(_REELS) if i not in self._hold_reels]
-        if not non_held:
+        """Hold & Spin: jede freie Zelle ist ein unabhaengiges 1x1-Reel."""
+        total_locked = sum(len(c) for c in self._hold_vals.values())
+        if total_locked >= _REELS * _ROWS:
             self._end_holdspin()
             return
 
-        total_val   = sum(val for cells in self._hold_vals.values() for _, val in cells)
-        total_cells = sum(len(c) for c in self._hold_vals.values())
+        total_val = sum(val for cells in self._hold_vals.values() for _, val in cells)
         self._mode_lbl.setText(
-            f"🔮  HOLD  ·  {total_cells}/{_REELS * _ROWS} Zellen  "
+            f"🔮  HOLD  ·  {total_locked}/{_REELS * _ROWS} Zellen  "
             f"·  +{total_val}  ·  {self._hold_respins} Respins"
         )
 
-        results: list[list[int]] = []
+        # Pro Zelle Ergebnis-Symbol berechnen
+        all_cells: list[tuple[int, int, int]] = []
         for ri in range(_REELS):
             locked_rows = {row for row, _ in self._hold_vals.get(ri, [])}
-            results.append(_hold_col(locked_rows))
+            col = _hold_col(locked_rows)
+            for row in range(_ROWS):
+                if row not in locked_rows:
+                    all_cells.append((ri, row, col[row]))
 
-        # Nicht-gehaltene Reels starten (sonst bleiben sie stopped=True)
-        for ri in non_held:
-            self._reels[ri].start()
+        # Zellen als pending markieren bevor Mode gesetzt wird
+        for ri, row, _s in all_cells:
+            self._reels[ri].mark_cell_pending(row)
 
         self._mode = "holdspinning"
 
-        for j, ri in enumerate(non_held):
+        # Gestaffelt starten: links->rechts, oben->unten (55 ms Abstand)
+        step_ms = 55
+        for idx, (ri, row, sym) in enumerate(all_cells):
+            spin_ticks = 12 + ri * 2 + row   # 12-22 ticks = ~312-572 ms Drehdauer
             t = QTimer(self)
             t.setSingleShot(True)
             t.timeout.connect(
-                lambda r=self._reels[ri], s=results[ri]: r.schedule_stop(s)
+                lambda _r=self._reels[ri], _rw=row, _s=sym, _td=spin_ticks:
+                    _r.start_cell_anim(_rw, _s, _td)
             )
-            t.start(260 + j * 180)
+            t.start(idx * step_ms)
             self._stop_timers.append(t)
 
     def _evaluate_holdspin(self) -> None:
@@ -1204,8 +1231,7 @@ class SlotMachineDialog(QDialog):
         new_balls: list[tuple[int, int, int, str | None]] = []
 
         for ri in range(_REELS):
-            if ri in self._hold_reels:
-                continue
+            # Auch auf teilweise gehaltenen Reels koennen weitere Bälle landen
             locked_rows = {row for row, _ in self._hold_vals.get(ri, [])}
             for row, sym in enumerate(grid[ri]):
                 if row in locked_rows:
