@@ -590,9 +590,21 @@ class SanmatDB:
         alles_zurueck = all(v == 0 for v in netto.values())
 
         if alles_zurueck:
-            for b in buchungen:
-                self.delete_buchung(b["id"])
-            return ("geloescht", len(buchungen), len(netto))
+            # Nur die Verbrauch-Buchungen (menge < 0) löschen – OHNE Bestandsrückkehr.
+            # Die dazugehörigen Rückbuchungen (menge > 0) haben den Bestand bereits
+            # wiederhergestellt (via einlagern in der UI), daher darf kein zweiter
+            # Bestandseingriff stattfinden.
+            conn = self._conn()
+            try:
+                anzahl = 0
+                for b in buchungen:
+                    if b["menge"] < 0:
+                        conn.execute("DELETE FROM buchungen WHERE id=?", (b["id"],))
+                        anzahl += 1
+                conn.commit()
+            finally:
+                conn.close()
+            return ("geloescht", anzahl, len(netto))
         else:
             label = quelle_label or f"{typ} {referenz_id}"
             hinweis = f"  ⚠ QUELLE GELÖSCHT [{label}]"
