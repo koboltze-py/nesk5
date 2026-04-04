@@ -172,7 +172,7 @@ class _TagZelle(QFrame):
         stil = (f"QLabel{{background:{bg};color:{fg};border-radius:3px;"
                 f"font-size:9px;padding:1px 2px;"
                 + ("border:1px dashed " + fg + ";" if vorwarnung else "")
-                + "}}")
+                + "}")
         lbl.setStyleSheet(stil)
         gb_anzeige = eintrag.get("gueltig_bis", "?")
         lbl.setToolTip(
@@ -888,9 +888,78 @@ class _MitarbeiterDetailDialog(QDialog):
         leg_lay.addStretch()
         v.addLayout(leg_lay)
 
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_mail = _btn("📧  E-Mail senden", "#1565c0", "#0d47a1")
+        btn_mail.setToolTip("Outlook-Entwurf mit abgelaufenen Schulungen erstellen")
+        btn_mail.clicked.connect(self._sende_email)
+        btn_row.addWidget(btn_mail)
+        btn_row.addStretch()
         btn = _btn("Schließen", "#546e7a", "#455a64")
         btn.clicked.connect(self.accept)
-        v.addWidget(btn, alignment=Qt.AlignmentFlag.AlignRight)
+        btn_row.addWidget(btn)
+        v.addLayout(btn_row)
+
+    def _sende_email(self):
+        import urllib.parse, subprocess, os
+        from functions.schulungen_db import SCHULUNGSTYPEN_CFG
+        ma = self._ma
+        email = ""
+        try:
+            from database.connection import get_ma_connection
+            import sqlite3 as _sqlite3
+            conn = get_ma_connection()
+            conn.row_factory = _sqlite3.Row
+            row = conn.execute(
+                "SELECT email FROM mitarbeiter WHERE nachname=? AND vorname=? LIMIT 1",
+                (ma.get("nachname", ""), ma.get("vorname", ""))
+            ).fetchone()
+            conn.close()
+            if row:
+                email = row["email"] or ""
+        except Exception:
+            pass
+        DRING_LABEL = {
+            "abgelaufen": "abgelaufen",
+            "rot":        "läuft in ≤1 Monat ab",
+            "orange":     "läuft in ≤2 Monaten ab",
+            "gelb":       "läuft in ≤3 Monaten ab",
+        }
+        probleme = []
+        for typ, eintrag in ma.get("schulungen", {}).items():
+            dring = eintrag.get("_dringlichkeit", "")
+            if dring in DRING_LABEL:
+                anzeige = SCHULUNGSTYPEN_CFG.get(typ, {}).get("anzeige", typ)
+                gb      = eintrag.get("gueltig_bis", "—") or "—"
+                probleme.append(f"  • {anzeige}: {gb} ({DRING_LABEL[dring]})")
+        if not probleme:
+            QMessageBox.information(
+                self, "Keine Probleme",
+                f"{ma.get('vorname', '')} {ma.get('nachname', '')} hat keine abgelaufenen "
+                f"oder demnächst ablaufenden Schulungen."
+            )
+            return
+        vorname = ma.get("vorname", "")
+        liste   = "\n".join(probleme)
+        betreff = "Schulungsstatus – Handlungsbedarf"
+        text = (
+            f"Hallo {vorname},\n\n"
+            f"bei der Überprüfung deiner Schulungsunterlagen haben wir festgestellt, dass "
+            f"folgende Schulungen abgelaufen sind oder demnächst ablaufen:\n\n"
+            f"{liste}\n\n"
+            f"Bitte kümmere dich zeitnah um die Erneuerung.\n\n"
+            f"Bei Fragen stehen wir gerne zur Verfügung.\n\n"
+            f"Viele Grüße\nDRK Erste-Hilfe-Station FKB"
+        )
+        mailto = (
+            f"mailto:{urllib.parse.quote(email)}"
+            f"?subject={urllib.parse.quote(betreff)}"
+            f"&body={urllib.parse.quote(text)}"
+        )
+        try:
+            subprocess.Popen(["outlook", "/c", "ipm.note", "/m", mailto])
+        except FileNotFoundError:
+            os.startfile(mailto)
 
     def _tabelle_befuellen(self):
         from functions.schulungen_db import SCHULUNGSTYPEN_CFG, lade_mitarbeiter_mit_schulungen
@@ -1130,18 +1199,22 @@ class _MitarbeiterListeWidget(QWidget):
         if typ_key:
             from functions.schulungen_db import SCHULUNGSTYPEN_CFG
             anzeige = SCHULUNGSTYPEN_CFG.get(typ_key, {}).get("anzeige", typ_key)
-            cols = ["Name", "Qualifikation", anzeige, "Gültig bis", "Status"]
+            cols = ["Name", "Qualifikation", anzeige, "Gültig bis", "Status", ""]
         else:
-            cols = ["Name", "Qualifikation"] + [k for _, k in self._MATRIX]
+            cols = ["Name", "Qualifikation"] + [k for _, k in self._MATRIX] + [""]
 
         self._tbl.setColumnCount(len(cols))
         self._tbl.setHorizontalHeaderLabels(cols)
         self._tbl.setRowCount(len(daten))
 
         hh = self._tbl.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for i in range(1, len(cols)):
-            hh.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        for i in range(2, len(cols) - 1):
+            hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(len(cols) - 1, QHeaderView.ResizeMode.Fixed)
+        self._tbl.setColumnWidth(0, 220)
+        self._tbl.setColumnWidth(len(cols) - 1, 36)
 
         grenze = len(daten) - anzahl_ohne  # erste Zeile der "ohne Einträge"-Gruppe
 
@@ -1194,6 +1267,18 @@ class _MitarbeiterListeWidget(QWidget):
                         it.setForeground(QColor("#bdbdbd"))
                     self._tbl.setItem(row, col, it)
 
+            # E-Mail-Button
+            mail_col = len(cols) - 1
+            btn_mail = QPushButton("📧")
+            btn_mail.setFixedSize(28, 24)
+            btn_mail.setToolTip("E-Mail mit abgelaufenen Schulungen senden")
+            btn_mail.setStyleSheet(
+                "QPushButton{background:#e3f2fd;border:none;border-radius:3px;font-size:13px;}"
+                "QPushButton:hover{background:#90caf9;}"
+            )
+            btn_mail.clicked.connect(lambda _=False, m=ma: self._sende_email(m))
+            self._tbl.setCellWidget(row, mail_col, btn_mail)
+
     def _zeige_detail(self, row: int):
         item = self._tbl.item(row, 0)
         if not item:
@@ -1204,6 +1289,74 @@ class _MitarbeiterListeWidget(QWidget):
         dlg = _MitarbeiterDetailDialog(ma, self)
         dlg.geaendert.connect(self.aktualisieren)   # nach Speichern Liste neu laden
         dlg.exec()
+
+    def _sende_email(self, ma: dict):
+        import urllib.parse, subprocess
+        from functions.schulungen_db import SCHULUNGSTYPEN_CFG
+
+        # E-Mail-Adresse aus mitarbeiter.db nachschlagen
+        email = ""
+        try:
+            from database.connection import get_ma_connection
+            import sqlite3 as _sqlite3
+            conn = get_ma_connection()
+            conn.row_factory = _sqlite3.Row
+            row = conn.execute(
+                "SELECT email FROM mitarbeiter WHERE nachname=? AND vorname=? LIMIT 1",
+                (ma.get("nachname", ""), ma.get("vorname", ""))
+            ).fetchone()
+            conn.close()
+            if row:
+                email = row["email"] or ""
+        except Exception:
+            pass
+
+        # Abgelaufene / kritische Schulungen ermitteln
+        DRING_LABEL = {
+            "abgelaufen": "abgelaufen",
+            "rot":        "läuft in ≤1 Monat ab",
+            "orange":     "läuft in ≤2 Monaten ab",
+            "gelb":       "läuft in ≤3 Monaten ab",
+        }
+        probleme = []
+        for typ, eintrag in ma.get("schulungen", {}).items():
+            dring = eintrag.get("_dringlichkeit", "")
+            if dring in DRING_LABEL:
+                anzeige = SCHULUNGSTYPEN_CFG.get(typ, {}).get("anzeige", typ)
+                gb      = eintrag.get("gueltig_bis", "—") or "—"
+                probleme.append(f"  • {anzeige}: {gb} ({DRING_LABEL[dring]})")
+
+        if not probleme:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(
+                self, "Keine Probleme",
+                f"{ma.get('vorname', '')} {ma.get('nachname', '')} hat keine abgelaufenen "
+                f"oder demnächst ablaufenden Schulungen."
+            )
+            return
+
+        vorname  = ma.get("vorname", "")
+        liste    = "\n".join(probleme)
+        betreff  = "Schulungsstatus – Handlungsbedarf"
+        text = (
+            f"Hallo {vorname},\n\n"
+            f"bei der Überprüfung deiner Schulungsunterlagen haben wir festgestellt, "
+            f"dass folgende Schulungen abgelaufen sind oder demnächst ablaufen:\n\n"
+            f"{liste}\n\n"
+            f"Bitte kümmere dich zeitnah um die Erneuerung.\n\n"
+            f"Bei Fragen stehen wir gerne zur Verfügung.\n\n"
+            f"Viele Grüße\nDRK Erste-Hilfe-Station FKB"
+        )
+        mailto = (
+            f"mailto:{urllib.parse.quote(email)}"
+            f"?subject={urllib.parse.quote(betreff)}"
+            f"&body={urllib.parse.quote(text)}"
+        )
+        try:
+            subprocess.Popen(["outlook", "/c", "ipm.note", "/m", mailto])
+        except FileNotFoundError:
+            import os
+            os.startfile(mailto)
 
     def _filter_zuruecksetzen(self):
         self._suche.clear()

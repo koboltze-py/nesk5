@@ -22,6 +22,7 @@ from PySide6.QtCore import Qt, QDate, QTime
 from PySide6.QtGui import QFont, QColor
 
 from config import FIORI_BLUE, FIORI_TEXT, BASE_DIR, FIORI_BORDER
+from gui.sanmat.main_widget import SanmatWidget as _SanmatWidget
 
 try:
     from database.sanmat_db import SanmatDB as _SanmatDB
@@ -148,6 +149,10 @@ def _ensured_patienten_db() -> str:
             con.execute(f"ALTER TABLE patienten ADD COLUMN {col} {typ}")
         except Exception:
             pass  # Spalte existiert bereits
+    try:
+        con.execute("ALTER TABLE verbrauchsmaterial ADD COLUMN artikel_id INTEGER DEFAULT NULL")
+    except Exception:
+        pass  # Spalte existiert bereits
     con.commit()
     con.close()
     return _PATIENTEN_DB_PFAD
@@ -251,8 +256,8 @@ def patient_speichern(daten: dict, verbrauchsmaterial: list[dict]) -> int:
         patienten_id = cur.lastrowid
         for vm in verbrauchsmaterial:
             con.execute(
-                "INSERT INTO verbrauchsmaterial (patienten_id, material, menge, einheit) VALUES (?, ?, ?, ?)",
-                (patienten_id, vm.get("material", ""), vm.get("menge", 1), vm.get("einheit", "Stk"))
+                "INSERT INTO verbrauchsmaterial (patienten_id, material, menge, einheit, artikel_id) VALUES (?, ?, ?, ?, ?)",
+                (patienten_id, vm.get("material", ""), vm.get("menge", 1), vm.get("einheit", "Stk"), vm.get("artikel_id"))
             )
         for med in daten.get("_medikamente", []):
             con.execute(
@@ -333,8 +338,8 @@ def patient_aktualisieren(row_id: int, daten: dict, verbrauchsmaterial: list[dic
         con.execute("DELETE FROM verbrauchsmaterial WHERE patienten_id=?", (row_id,))
         for vm in verbrauchsmaterial:
             con.execute(
-                "INSERT INTO verbrauchsmaterial (patienten_id, material, menge, einheit) VALUES (?, ?, ?, ?)",
-                (row_id, vm.get("material", ""), vm.get("menge", 1), vm.get("einheit", "Stk"))
+                "INSERT INTO verbrauchsmaterial (patienten_id, material, menge, einheit, artikel_id) VALUES (?, ?, ?, ?, ?)",
+                (row_id, vm.get("material", ""), vm.get("menge", 1), vm.get("einheit", "Stk"), vm.get("artikel_id"))
             )
         con.execute("DELETE FROM medikamente WHERE patienten_id=?", (row_id,))
         for med in daten.get("_medikamente", []):
@@ -1128,6 +1133,138 @@ def _btn_light(text: str) -> QPushButton:
         QPushButton:disabled { background:#f5f5f5; color:#bbb; }
     """)
     return btn
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Dialog: Rückbuchung – Mengenauswahl je Artikel
+# ──────────────────────────────────────────────────────────────────────────────
+
+class _RueckbuchungsDialog(QDialog):
+    """Tabelle: Artikel | Verbraucht | Zurückbuchen (SpinBox) – mit Checkbox je Zeile."""
+
+    def __init__(self, artikel: list[dict], titel: str = "Rückbuchung", parent=None):
+        """
+        artikel: list of dicts mit 'name' (str), 'menge' (int), 'artikel_id' (int)
+        """
+        super().__init__(parent)
+        self.setWindowTitle("📦  " + titel)
+        self.setMinimumWidth(560)
+        self.setMinimumHeight(120 + min(len(artikel), 10) * 36)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        info = QLabel("Wähle welche Artikel und in welcher Menge zurückgebucht werden sollen:")
+        info.setWordWrap(True)
+        info.setStyleSheet("font-size:12px; color:#333;")
+        layout.addWidget(info)
+
+        # Tabelle: ✓ | Artikel | Verbraucht | Zurückbuchen
+        self._table = QTableWidget(len(artikel), 4)
+        self._table.setHorizontalHeaderLabels(["✓", "Artikel", "Verbraucht", "Zurückbuchen"])
+        hh = self._table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self._table.setAlternatingRowColors(True)
+        self._table.setStyleSheet("font-size:12px;")
+
+        self._rows: list[tuple[dict, QCheckBox, QSpinBox]] = []
+
+        for r, art in enumerate(artikel):
+            max_menge = art["menge"]
+
+            # Spalte 0: Checkbox
+            chk = QCheckBox()
+            chk.setChecked(True)
+            chk_widget = QWidget()
+            chk_lay = QHBoxLayout(chk_widget)
+            chk_lay.setContentsMargins(6, 0, 0, 0)
+            chk_lay.addWidget(chk)
+            self._table.setCellWidget(r, 0, chk_widget)
+
+            # Spalte 1: Artikelname
+            name_item = QTableWidgetItem(art["name"])
+            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self._table.setItem(r, 1, name_item)
+
+            # Spalte 2: Verbraucht (schreibgeschützt)
+            verbraucht_item = QTableWidgetItem(str(max_menge))
+            verbraucht_item.setFlags(verbraucht_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            verbraucht_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+            verbraucht_item.setForeground(QColor("#c0392b"))
+            self._table.setItem(r, 2, verbraucht_item)
+
+            # Spalte 3: SpinBox Rückbuchungsmenge
+            spin = QSpinBox()
+            spin.setMinimum(0)
+            spin.setMaximum(max_menge)
+            spin.setValue(max_menge)
+            spin.setFixedWidth(75)
+            spin_widget = QWidget()
+            spin_lay = QHBoxLayout(spin_widget)
+            spin_lay.setContentsMargins(4, 2, 4, 2)
+            spin_lay.addWidget(spin)
+            self._table.setCellWidget(r, 3, spin_widget)
+
+            # Checkbox deaktiviert SpinBox
+            def _on_chk(state, s=spin):
+                s.setEnabled(bool(state))
+                if not state:
+                    s.setValue(0)
+                else:
+                    s.setValue(s.maximum())
+            chk.stateChanged.connect(_on_chk)
+
+            self._rows.append((art, chk, spin))
+            self._table.setRowHeight(r, 34)
+
+        layout.addWidget(self._table)
+
+        # Alle / Keine Buttons
+        sel_row = QHBoxLayout()
+        btn_alle = QPushButton("☑  Alle")
+        btn_alle.setFixedWidth(80)
+        btn_alle.clicked.connect(self._alle_auswaehlen)
+        btn_keine = QPushButton("☐  Keine")
+        btn_keine.setFixedWidth(80)
+        btn_keine.clicked.connect(self._keine_auswaehlen)
+        sel_row.addWidget(btn_alle)
+        sel_row.addWidget(btn_keine)
+        sel_row.addStretch()
+        layout.addLayout(sel_row)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText("✅  Zurückbuchen")
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText("⛔  Nichts zurückbuchen")
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    def _alle_auswaehlen(self):
+        for art, chk, spin in self._rows:
+            chk.setChecked(True)
+            spin.setValue(spin.maximum())
+
+    def _keine_auswaehlen(self):
+        for art, chk, spin in self._rows:
+            chk.setChecked(False)
+            spin.setValue(0)
+
+    def get_auswahl(self) -> list[dict]:
+        """Gibt Liste der Artikel mit gewünschter Rückbuchungsmenge > 0 zurück."""
+        ergebnis = []
+        for art, chk, spin in self._rows:
+            menge = spin.value()
+            if chk.isChecked() and menge > 0:
+                ergebnis.append({**art, "menge": menge})
+        return ergebnis
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2159,34 +2296,32 @@ class _PatientenDialog(QDialog):
         return g
 
     def _build_grp_material(self) -> QGroupBox:
-        g = QGroupBox("📦  Verbrauchsmaterial")
+        g = QGroupBox("🧰  Verbrauchsmaterial (Sanmat)")
         g.setStyleSheet(self._GROUP_STYLE)
         mat_layout = QVBoxLayout(g)
         mat_layout.setSpacing(8)
-        btn_add = QPushButton("➕  Material hinzufügen")
-        btn_add.setFixedHeight(32)
-        btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_add.setStyleSheet(
-            "QPushButton{background:#107e3e;color:white;border:none;"
-            "border-radius:4px;padding:4px 14px;font-size:12px;}"
-            "QPushButton:hover{background:#0a5c2e;}"
-        )
-        btn_add.clicked.connect(self._material_hinzufuegen)
-        mat_layout.addWidget(btn_add, 0, Qt.AlignmentFlag.AlignLeft)
         self._material_table = QTableWidget()
-        self._material_table.setColumnCount(4)
-        self._material_table.setHorizontalHeaderLabels(["Material", "Menge", "Einheit", ""])
+        self._material_table.setColumnCount(2)
+        self._material_table.setHorizontalHeaderLabels(["Artikel", "Menge"])
         hh = self._material_table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self._material_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._material_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._material_table.setMaximumHeight(150)
         self._material_table.verticalHeader().setVisible(False)
+        self._material_table.setAlternatingRowColors(True)
         self._material_table.setStyleSheet("font-size:12px;")
         mat_layout.addWidget(self._material_table)
+        mat_btn_lay = QHBoxLayout()
+        btn_add = QPushButton("➕  Artikel hinzufügen")
+        btn_add.clicked.connect(self._material_hinzufuegen)
+        mat_btn_lay.addWidget(btn_add)
+        btn_rm = QPushButton("🗑  Entfernen")
+        btn_rm.clicked.connect(self._material_entfernen)
+        mat_btn_lay.addWidget(btn_rm)
+        mat_btn_lay.addStretch()
+        mat_layout.addLayout(mat_btn_lay)
         return g
 
     def _build_grp_arbeitsunfall(self) -> QGroupBox:
@@ -2288,56 +2423,34 @@ class _PatientenDialog(QDialog):
 
     # ── Verbrauchsmaterial ──────────────────────────────────────────────────────────────────
     def _material_hinzufuegen(self):
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Material hinzufügen")
-        dlg.setMinimumWidth(400)
-        layout = QVBoxLayout(dlg)
-        fl = QFormLayout()
-        material_edit = QLineEdit()
-        material_edit.setPlaceholderText("z.B. Pflaster, Kompresse, Handschuhe …")
-        menge_spin = QSpinBox()
-        menge_spin.setRange(1, 999)
-        menge_spin.setValue(1)
-        einheit_combo = QComboBox()
-        einheit_combo.addItems(["Stk", "Paar", "Pkg", "ml"])
-        einheit_combo.setEditable(True)
-        fl.addRow("Material:", material_edit)
-        fl.addRow("Menge:", menge_spin)
-        fl.addRow("Einheit:", einheit_combo)
-        layout.addLayout(fl)
-        btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        btns.accepted.connect(lambda: dlg.accept() if material_edit.text().strip() else None)
-        btns.rejected.connect(dlg.reject)
-        layout.addWidget(btns)
+        if _SanmatDB is None:
+            QMessageBox.warning(self, "Sanmat", "Sanmat-Modul nicht verfügbar.")
+            return
+        dlg = _ArtikelPickerDialog(parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            material = material_edit.text().strip()
-            if material:
+            auswahl = dlg.get_auswahl()
+            if auswahl:
                 self._verbrauchsmaterial_liste.append({
-                    "material": material,
-                    "menge": menge_spin.value(),
-                    "einheit": einheit_combo.currentText()
+                    "material":   auswahl["bezeichnung"],
+                    "menge":      auswahl["menge"],
+                    "einheit":    "Stk",
+                    "artikel_id": auswahl["artikel_id"],
                 })
                 self._aktualisiere_material_tabelle()
 
     def _aktualisiere_material_tabelle(self):
         self._material_table.setRowCount(len(self._verbrauchsmaterial_liste))
         for row, mat in enumerate(self._verbrauchsmaterial_liste):
-            self._material_table.setItem(row, 0, QTableWidgetItem(mat["material"]))
-            self._material_table.setItem(row, 1, QTableWidgetItem(str(mat["menge"])))
-            self._material_table.setItem(row, 2, QTableWidgetItem(mat["einheit"]))
-            btn_del = QPushButton("🗑")
-            btn_del.setFixedSize(28, 28)
-            btn_del.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_del.setStyleSheet(
-                "QPushButton{background:#ffcccc;border:none;border-radius:3px;}"
-                "QPushButton:hover{background:#ff9999;}"
-            )
-            btn_del.clicked.connect(lambda checked, r=row: self._material_entfernen(r))
-            self._material_table.setCellWidget(row, 3, btn_del)
+            item_bez = QTableWidgetItem(mat["material"])
+            item_bez.setFlags(item_bez.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            item_menge = QTableWidgetItem(str(mat["menge"]))
+            item_menge.setFlags(item_menge.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            item_menge.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+            self._material_table.setItem(row, 0, item_bez)
+            self._material_table.setItem(row, 1, item_menge)
 
-    def _material_entfernen(self, row: int):
+    def _material_entfernen(self):
+        row = self._material_table.currentRow()
         if 0 <= row < len(self._verbrauchsmaterial_liste):
             self._verbrauchsmaterial_liste.pop(row)
             self._aktualisiere_material_tabelle()
@@ -2810,8 +2923,46 @@ class _PatientenTab(QWidget):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             daten, material = dlg.get_data()
             try:
-                patient_speichern(daten, material)
+                patient_id = patient_speichern(daten, material)
                 self.refresh()
+                # Sanmat-Buchung (nur Positionen mit artikel_id)
+                verbrauch_mit_id = [m for m in material if m.get("artikel_id")]
+                if verbrauch_mit_id and _SanmatDB is not None:
+                    try:
+                        import time as _time
+                        db = _SanmatDB()
+                        db.initialize()
+                        datum_raw = daten.get("datum", "")
+                        try:
+                            t = datum_raw.split(".")
+                            datum_iso = f"{t[2]}-{t[1]}-{t[0]}" if len(t) == 3 else datum_raw
+                        except Exception:
+                            datum_iso = datum_raw
+                        entnehmer = daten.get("drk_ma1", "")
+                        gid = int(_time.time())
+                        patient_typ = daten.get("patient_typ", "Patient")
+                        name = daten.get("patient_name") or patient_typ or f"Patient {patient_id}"
+                        stichwort = f"Pat.-Station [{patient_typ}]: {name}  (GID {gid})"
+                        fehler = []
+                        for pos in verbrauch_mit_id:
+                            ok, msg = db.entnehmen(
+                                artikel_id=pos["artikel_id"],
+                                artikel_name=pos["material"],
+                                menge=pos["menge"],
+                                datum=datum_iso,
+                                typ="verbrauch",
+                                von=entnehmer,
+                                bemerkung=stichwort,
+                                negativ_erlaubt=True,
+                            )
+                            if not ok:
+                                fehler.append(f"{pos['material']}: {msg}")
+                        if fehler:
+                            QMessageBox.warning(self, "Sanmat-Buchung",
+                                "Einige Buchungen fehlgeschlagen:\n" + "\n".join(fehler))
+                    except Exception as exc:
+                        QMessageBox.warning(self, "Sanmat-Buchung",
+                            f"Fehler beim Buchen des Verbrauchsmaterials:\n{exc}")
                 QMessageBox.information(self, "Erfolg", "Patient erfolgreich erfasst.")
             except Exception as exc:
                 QMessageBox.critical(self, "Fehler beim Speichern", str(exc))
@@ -2836,20 +2987,64 @@ class _PatientenTab(QWidget):
         if row < 0 or row >= len(self._eintraege):
             return
         eintrag = self._eintraege[row]
+        name = eintrag.get("patient_name") or eintrag.get("patient_typ") or f"Patient {eintrag.get('id','')}"
         antwort = QMessageBox.question(
             self, "Löschen bestätigen",
-            f"Patienten-Datensatz vom {eintrag.get('datum','')} wirklich löschen?\n"
+            f"Patienten-Datensatz wirklich löschen?\n\n"
+            f"Datum:    {eintrag.get('datum','')}\n"
+            f"Patient:  {name}\n\n"
             f"Diese Aktion kann nicht rückgängig gemacht werden.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
-        if antwort == QMessageBox.StandardButton.Yes:
-            try:
-                patient_loeschen(eintrag["id"])
-                self.refresh()
-                QMessageBox.information(self, "Gelöscht", "Patient wurde gelöscht.")
-            except Exception as exc:
-                QMessageBox.critical(self, "Fehler beim Löschen", str(exc))
+        if antwort != QMessageBox.StandardButton.Yes:
+            return
+        # Prüfen ob Sanmat-Material zum Zurückbuchen vorhanden
+        rueck_auswahl = []
+        try:
+            vm_liste = lade_verbrauchsmaterial(eintrag["id"])
+            rueck_mit_id = [m for m in vm_liste if m.get("artikel_id")]
+            if rueck_mit_id and _SanmatDB is not None:
+                artikel_dlg = _RueckbuchungsDialog(
+                    artikel=[{"name": m["material"], "menge": m["menge"],
+                               "artikel_id": m["artikel_id"]} for m in rueck_mit_id],
+                    titel="Material zurückbuchen?",
+                    parent=self,
+                )
+                if artikel_dlg.exec() == QDialog.DialogCode.Accepted:
+                    rueck_auswahl = artikel_dlg.get_auswahl()
+        except Exception:
+            pass
+        try:
+            if rueck_auswahl:
+                try:
+                    db = _SanmatDB()
+                    db.initialize()
+                    datum_raw = eintrag.get("datum", "")
+                    try:
+                        t = datum_raw.split(".")
+                        datum_iso = f"{t[2]}-{t[1]}-{t[0]}" if len(t) == 3 else datum_raw
+                    except Exception:
+                        datum_iso = datum_raw
+                    entnehmer = eintrag.get("drk_ma1", "")
+                    bem = f"Rückbuchung gelöschter Pat.: {name}"
+                    for pos in rueck_auswahl:
+                        db.einlagern(
+                            artikel_id=pos["artikel_id"],
+                            artikel_name=pos["name"],
+                            menge=pos["menge"],
+                            datum=datum_iso,
+                            von=entnehmer,
+                            bemerkung=bem,
+                            typ="rueckgabe",
+                        )
+                except Exception:
+                    pass
+            patient_loeschen(eintrag["id"])
+            self.refresh()
+            QMessageBox.information(self, "Gelöscht", "Patient wurde gelöscht.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Fehler beim Löschen", str(exc))
 
     def _material_anzeigen(self):
         row = self._table.currentRow()
@@ -3358,13 +3553,58 @@ class _EinsaetzeTab(QWidget):
             f"Stichwort:   {e.get('einsatzstichwort', '')}\n"
             f"Einsatzort:  {e.get('einsatzort', '')}",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if antwort == QMessageBox.StandardButton.Yes:
-            try:
-                einsatz_loeschen(e["id"])
-                self.refresh()
-            except Exception as exc:
-                QMessageBox.critical(self, "Fehler", f"Fehler beim Löschen:\n{exc}")
+        if antwort != QMessageBox.StandardButton.Yes:
+            return
+        # Prüfen ob Sanmat-Buchungen zum Zurückbuchen vorhanden
+        rueck_auswahl = []
+        db_ein = None
+        try:
+            if _SanmatDB is not None:
+                import re as _re
+                db_ein = _SanmatDB()
+                db_ein.initialize()
+                alle = db_ein.get_buchungen(suche=f"(ID {e['id']})", typ="verbrauch", limit=500)
+                ziel_pattern = _re.compile(rf"\(ID {e['id']}\)")
+                sanmat_buchungen = [b for b in alle if ziel_pattern.search(b.get("bemerkung", ""))]
+                if sanmat_buchungen:
+                    artikel_dlg = _RueckbuchungsDialog(
+                        artikel=[{"name": b["artikel_name"], "menge": abs(b["menge"]),
+                                   "artikel_id": b["artikel_id"]} for b in sanmat_buchungen],
+                        titel="Material zurückbuchen?",
+                        parent=self,
+                    )
+                    if artikel_dlg.exec() == QDialog.DialogCode.Accepted:
+                        rueck_auswahl = artikel_dlg.get_auswahl()
+        except Exception:
+            pass
+        try:
+            if rueck_auswahl and db_ein is not None:
+                try:
+                    datum_raw = e.get("datum", "")
+                    try:
+                        t = datum_raw.split(".")
+                        datum_iso = f"{t[2]}-{t[1]}-{t[0]}" if len(t) == 3 else datum_raw
+                    except Exception:
+                        datum_iso = datum_raw
+                    stichwort = e.get("einsatzstichwort", "") or f"Einsatz-ID {e['id']}"
+                    for pos in rueck_auswahl:
+                        db_ein.einlagern(
+                            artikel_id=pos["artikel_id"],
+                            artikel_name=pos["name"],
+                            menge=pos["menge"],
+                            datum=datum_iso,
+                            von=e.get("drk_ma1", ""),
+                            bemerkung=f"Rückbuchung gelöschter Einsatz: {stichwort}  (ID {e['id']})",
+                            typ="rueckgabe",
+                        )
+                except Exception:
+                    pass
+            einsatz_loeschen(e["id"])
+            self.refresh()
+        except Exception as exc:
+            QMessageBox.critical(self, "Fehler", f"Fehler beim Löschen:\n{exc}")
 
     # ── Export-Helfer ─────────────────────────────────────────────────────────
 
@@ -4023,6 +4263,9 @@ class DienstlichesWidget(QWidget):
 
         self._uebersicht_tab = _UebersichtTab()
         self._tabs.addTab(self._uebersicht_tab, "📊  Übersicht")
+
+        self._sanmat_tab = _SanmatWidget()
+        self._tabs.addTab(self._sanmat_tab, "🩺  Sanitätsmaterial")
 
         self._tabs.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self._tabs, 1)

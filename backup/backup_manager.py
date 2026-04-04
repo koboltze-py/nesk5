@@ -657,13 +657,16 @@ def is_restore_pending() -> bool:
 
 _CODE_BACKUP_DIR = os.path.join(BASE_DIR, "Backup Data")
 
-# Ordner/Muster die beim ZIP-Backup NICHT einbezogen werden sollen
+# Ordner die beim ZIP-Backup NICHT einbezogen werden sollen
+# Ausgeschlossen: generierte Artefakte, EXEs, virtuelle Umgebung, alte Backup-Ordner
 _ZIP_EXCLUDE_DIRS  = {
-    '__pycache__', '.git', 'Backup Data', 'backup', 'build_tmp', 'Exe',
-    # Große Datenordner – werden NICHT in den Code-Backup aufgenommen
-    'Daten', 'database SQL', 'Database SQL Backup', 'Databas SQL Backup',
-    'Backup', 'build', 'turso exe', 'WebNesk', 'MD 13.03',
-    'Markddown 02.03', 'markdown', 'docs', 'demo', 'json',
+    '__pycache__', '.git', '.venv',
+    # Build-Artefakte
+    'build', 'build_tmp', 'dist',
+    # EXE-Ausgaben
+    'Exe', 'G EXE', 'turso exe',
+    # Backup-Ordner (werden selbst nicht gesichert)
+    'Backup Data', 'Backup Neu ab 20.03', 'Database SQL Backup', 'Databas SQL Backup',
     '_backup_v29_Code19Mail',
 }
 _ZIP_EXCLUDE_EXTS  = {'.pyc', '.pyo', '.exe', '.dll', '.zip'}
@@ -671,13 +674,16 @@ _ZIP_EXCLUDE_EXTS  = {'.pyc', '.pyo', '.exe', '.dll', '.zip'}
 
 def create_zip_backup() -> str:
     """
-    Erstellt ein vollständiges ZIP-Backup des Nesk3-Ordners (alle .py, .db, .ini, .json Dateien).
-    Speichert das ZIP unter 'C:\\Daten\\Backup Nesk3\\Nesk3_backup_<timestamp>.zip'.
+    Erstellt ein vollständiges ZIP-Backup des Nesk3-Ordners.
+    Enthält: Quellcode, Datenbanken (database SQL/), Daten/, Word-Vorlagen, Konfiguration.
+    Ausgeschlossen: .venv, build, dist, EXEs, Backup-Ordner, .git.
+    Speichert unter 'C:\\Daten\\Backup Nesk3\\' und 'Backup Neu ab 20.03\\'.
     Gibt den vollständigen ZIP-Pfad zurück.
     """
-    # Lokal außerhalb von OneDrive speichern – kein Pfadlängenproblem
     local_backup_dir = r"C:\Daten\Backup Nesk3"
+    onedrive_backup_dir = os.path.join(BASE_DIR, "Backup Neu ab 20.03")
     os.makedirs(local_backup_dir, exist_ok=True)
+    os.makedirs(onedrive_backup_dir, exist_ok=True)
 
     stamp    = datetime.now().strftime('%Y%m%d_%H%M%S')
     zip_name = f"Nesk3_backup_{stamp}.zip"
@@ -687,7 +693,6 @@ def create_zip_backup() -> str:
     count   = 0
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
         for root, dirs, files in os.walk(BASE_DIR):
-            # Ausgeschlossene Ordner überspringen (in-place modifizieren)
             dirs[:] = [d for d in dirs if d not in _ZIP_EXCLUDE_DIRS]
             for fname in files:
                 if os.path.splitext(fname)[1].lower() in _ZIP_EXCLUDE_EXTS:
@@ -700,8 +705,16 @@ def create_zip_backup() -> str:
                 except Exception:
                     skipped += 1
 
-    if skipped:
-        print(f"[Backup] ZIP erstellt: {zip_path} ({count} Dateien, {skipped} übersprungen)")
+    # Kopie in OneDrive-Backup-Ordner
+    onedrive_dest = os.path.join(onedrive_backup_dir, zip_name)
+    try:
+        import shutil
+        shutil.copy2(zip_path, onedrive_dest)
+    except Exception:
+        pass
+
+    size_mb = os.path.getsize(zip_path) / 1024 / 1024
+    print(f"[Backup] ZIP erstellt: {zip_path} ({count} Dateien, {size_mb:.1f} MB{f', {skipped} übersprungen' if skipped else ''})")
     return zip_path
 
 

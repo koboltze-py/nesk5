@@ -309,7 +309,8 @@ class SanmatDB:
             conn.close()
 
     def einlagern(self, artikel_id: int, artikel_name: str, menge: int,
-                  datum: str, von: str = "", bemerkung: str = "") -> tuple[bool, str]:
+                  datum: str, von: str = "", bemerkung: str = "",
+                  typ: str = "einlagerung") -> tuple[bool, str]:
         conn = self._conn()
         try:
             conn.execute("""
@@ -318,8 +319,8 @@ class SanmatDB:
             """, (menge, artikel_id))
             conn.execute(
                 "INSERT INTO buchungen (artikel_id, artikel_name, menge, typ, von, bemerkung, datum) "
-                "VALUES (?, ?, ?, 'einlagerung', ?, ?, ?)",
-                (artikel_id, artikel_name, menge, von, bemerkung, datum)
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (artikel_id, artikel_name, menge, typ, von, bemerkung, datum)
             )
             conn.commit()
             return True, f"+{menge} {artikel_name} eingelagert."

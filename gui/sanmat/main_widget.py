@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from database.sanmat_db import SanmatDB
-from gui.sanmat.dashboard    import DashboardView
 from gui.sanmat.artikel      import ArtikelView
 from gui.sanmat.bestand      import BestandView
 from gui.sanmat.entnahme     import EntnahmeView
@@ -24,7 +23,6 @@ from gui.sanmat.verbrauch    import VerbrauchView
 from gui.sanmat.einstellungen import EinstellungenView
 
 _NAV = [
-    ("🏠", "Dashboard"),
     ("📋", "Artikel"),
     ("📦", "Bestand"),
     ("➡", "Entnahme"),
@@ -142,7 +140,6 @@ class SanmatWidget(QWidget):
 
         # Inhaltsbereich
         self._stack = QStackedWidget()
-        self._stack.addWidget(DashboardView(self.db))
         self._stack.addWidget(ArtikelView(self.db))
         self._stack.addWidget(BestandView(self.db))
         self._stack.addWidget(EntnahmeView(self.db))
@@ -158,7 +155,3 @@ class SanmatWidget(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        # Bei jedem Anzeigen Statistik im Dashboard aktualisieren
-        dashboard = self._stack.widget(0)
-        if hasattr(dashboard, "_refresh"):
-            dashboard._refresh()

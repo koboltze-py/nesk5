@@ -248,7 +248,7 @@ class StaerkemeldungExport:
             pPr.append(ind)
 
             zeit_run = para.add_run(f"{zeit}\t")
-            zeit_run.font.size = Pt(11)
+            zeit_run.font.size = Pt(10)
 
             namen_run = para.add_run(namen_text)
-            namen_run.font.size = Pt(11)
+            namen_run.font.size = Pt(10)

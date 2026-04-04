@@ -87,7 +87,7 @@ def _zeitgruppen(personen, ist_dispo=False):
         g.setdefault(key,[]).append(name)
     return g
 
-def _zeitgruppen_para(cell, gruppen, size=9.5):
+def _zeitgruppen_para(cell, gruppen, size=10):
     for zeit,namen in sorted(gruppen.items()):
         p=cell.add_paragraph(); pPr=p._p.get_or_add_pPr()
         tabs=OxmlElement("w:tabs"); tab=OxmlElement("w:tab")

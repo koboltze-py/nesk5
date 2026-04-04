@@ -197,29 +197,25 @@ class VerbrauchView(QWidget):
             typ="verbrauch", datum_von=von_str, datum_bis=bis_str, suche=suche
         )
 
-        # Gruppen-Schlüssel je Zeile: "ID_43" (Einsatz) oder "GID_..." (manuell) oder None
+        # Gruppen-Schlüssel je Zeile: "ID_43" (Einsatz) oder "GID_..." (manuell/Pat.) oder None
         eid_of: list[str | None] = []
-        eid_count: dict[str, int] = {}
         for b in rows:
             m = re.search(r"\((G?ID)\s*(\d+)\)", b.get("bemerkung", "") or "")
             eid: str | None = f"{m.group(1)}_{m.group(2)}" if m else None
             eid_of.append(eid)
-            if eid is not None:
-                eid_count[eid] = eid_count.get(eid, 0) + 1
 
         # Anzeigeliste aufbauen: (kind, eid, buchung)
         # kind = 'header' | 'item' | 'flat'
         display: list[tuple] = []
         seen_eids: set[str] = set()
         for b, eid in zip(rows, eid_of):
-            multi = eid is not None and eid_count.get(eid, 0) > 1
-            if multi:
+            if eid is not None:
                 if eid not in seen_eids:
                     seen_eids.add(eid)
                     display.append(("header", eid, b))
                 display.append(("item", eid, b))
             else:
-                display.append(("flat", eid, b))
+                display.append(("flat", None, b))
 
         self._table.clearSpans()
         self._table.blockSignals(True)
@@ -238,8 +234,26 @@ class VerbrauchView(QWidget):
                 datum_fmt = datum_raw
 
             bemerkung_raw = b.get("bemerkung", "") or ""
-            einsatz_name  = re.sub(r"\s*\(G?ID\s*\d+\).*", "", bemerkung_raw).strip()
-            icon = "🚑" if (eid or "").startswith("ID_") else "📋"
+            # Header-Text: Einsatz → nur Stichwort, Pat.-Station → patient_typ aus []
+            bem_ohne_id = re.sub(r"\s*\(G?ID\s*\d+\).*", "", bemerkung_raw).strip()
+            if (eid or "").startswith("ID_"):
+                # "Einsatz: Intern 2" → "Intern 2"
+                einsatz_name = re.sub(r"^Einsatz:\s*", "", bem_ohne_id).strip()
+                icon = "🚑"
+                typ_tag = "Einsatz"
+            elif bem_ohne_id.startswith("Pat.-Station"):
+                # "Pat.-Station [Passagier]: Max Mustermann" → "Passagier"
+                m_typ = re.search(r"\[([^\]]+)\]", bem_ohne_id)
+                if m_typ:
+                    einsatz_name = m_typ.group(1).strip()
+                else:
+                    einsatz_name = re.sub(r"^Pat\.-Station[:\s]*", "", bem_ohne_id).strip()
+                icon = "🏥"
+                typ_tag = "Pat. Station"
+            else:
+                einsatz_name = bem_ohne_id
+                icon = "📋"
+                typ_tag = ""
 
             def _cell(text: str, bg: QColor, fg: QColor | None = None,
                       bold: bool = False, align=None) -> QTableWidgetItem:
@@ -258,7 +272,7 @@ class VerbrauchView(QWidget):
                 self._table.setItem(r, 0, _cell(datum_fmt, self._COL_HEADER_BG, self._COL_HEADER_FG, bold=True))
                 self._table.setItem(r, 1, _cell(f"{icon}  {einsatz_name}", self._COL_HEADER_BG, self._COL_HEADER_FG, bold=True))
                 self._table.setItem(r, 3, _cell(b.get("von", ""), self._COL_HEADER_BG, self._COL_HEADER_FG, bold=True))
-                self._table.setItem(r, 4, _cell("", self._COL_HEADER_BG, self._COL_HEADER_FG))
+                self._table.setItem(r, 4, _cell(typ_tag, self._COL_HEADER_BG, QColor("#b3d1ff"), bold=False))
                 self._table.setSpan(r, 1, 1, 2)  # Artikel + Menge-Spalte zusammenführen
                 self._table.setRowHeight(r, 26)
 
@@ -836,7 +850,7 @@ class VerbrauchView(QWidget):
         lay.addWidget(QLabel("<b>📋  Verbrauchsgruppe anlegen</b>"))
         lay.addWidget(QLabel(
             "<span style='color:#666;font-size:11px;'>"
-            "Für Verbräuche außerhalb von Einsätzen (Übung, Ablauf, Eigenbedarf …)"
+            "Gruppenname frei definieren – z.B. 'Schicht 04.04.', 'Einsatz XY', 'Patient-Station' …"
             "</span>"
         ))
 
@@ -844,11 +858,12 @@ class VerbrauchView(QWidget):
         form_top = QFormLayout()
         form_top.setSpacing(8)
         le_stichwort = QLineEdit()
-        le_stichwort.setPlaceholderText("z.B. Übung 02.04.2026, MHD-Abgang April …")
-        form_top.addRow("Bezeichnung:", le_stichwort)
+        le_stichwort.setPlaceholderText("z.B. Schicht 04.04.2026, Einsatz Inland 1, MHD-Abgang April …")
+        form_top.addRow("Gruppenname *:", le_stichwort)
         cb_grund = QComboBox()
+        cb_grund.addItem("(kein Grund)")
         cb_grund.addItems(self.GRUENDE)
-        form_top.addRow("Grund:", cb_grund)
+        form_top.addRow("Grund (optional):", cb_grund)
         le_entnehmer = QLineEdit()
         le_entnehmer.setPlaceholderText("Name …")
         form_top.addRow("Entnehmer:", le_entnehmer)
@@ -985,8 +1000,15 @@ class VerbrauchView(QWidget):
                                     "Bitte mindestens einen Artikel in den Warenkorb legen.")
                 return
             bezeichnung = le_stichwort.text().strip()
+            if not bezeichnung:
+                QMessageBox.warning(dlg, "Gruppenname fehlt",
+                                    "Bitte einen Gruppenname / Oberbegriff eingeben.")
+                return
             grund = cb_grund.currentText()
-            stichwort = f"{grund}: {bezeichnung}" if bezeichnung else grund
+            if grund == "(kein Grund)":
+                stichwort = bezeichnung
+            else:
+                stichwort = f"{bezeichnung}  [{grund}]"
             entnehmer = le_entnehmer.text().strip()
             datum_iso = de_datum.date().toString("yyyy-MM-dd")
             ok, msg = self._db.buche_verbrauch_gruppe(
