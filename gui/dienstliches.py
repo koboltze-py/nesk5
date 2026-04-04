@@ -361,36 +361,49 @@ def patient_aktualisieren(row_id: int, daten: dict, verbrauchsmaterial: list[dic
 def patient_loeschen(row_id: int) -> None:
     # Sanmat-Verbrauch prüfen: entweder löschen oder als Quelle-gelöscht markieren
     if _SanmatDB is not None:
+        import time as _time_mod
+        for _versuch in range(3):
+            try:
+                _sanmat = _SanmatDB()
+                _sanmat.initialize()
+                with _patienten_db() as _con:
+                    _row = _con.execute(
+                        "SELECT sanmat_gid, patient_name, patient_typ FROM patienten WHERE id=?",
+                        (row_id,)
+                    ).fetchone()
+                if _row and _row["sanmat_gid"]:
+                    _gid = _row["sanmat_gid"]
+                    _name = _row["patient_name"] or _row["patient_typ"] or f"Patient {row_id}"
+                    _sanmat.handle_quelle_geloescht(
+                        referenz_id=str(_gid),
+                        typ="GID",
+                        quelle_label=f"Pat.-Station: {_name}",
+                    )
+                elif _row:
+                    # Fallback für ältere Datensätze ohne sanmat_gid
+                    _patient_typ = (_row["patient_typ"] or "").strip()
+                    _name = (_row["patient_name"] or _patient_typ or f"Patient {row_id}").strip()
+                    _muster = f"Pat.-Station [{_patient_typ}]: {_name}"
+                    _sanmat.handle_quelle_geloescht_textmuster(
+                        textmuster=_muster,
+                        quelle_label=f"Pat.-Station: {_name}",
+                    )
+                break  # Erfolg
+            except Exception as _ex:
+                if _versuch < 2:
+                    _time_mod.sleep(0.4)
+                else:
+                    print(f"[Sanmat] patient_loeschen {row_id}: Markierung fehlgeschlagen: {_ex}")
+    for _versuch in range(3):
         try:
-            _sanmat = _SanmatDB()
-            _sanmat.initialize()
-            with _patienten_db() as _con:
-                _row = _con.execute(
-                    "SELECT sanmat_gid, patient_name, patient_typ FROM patienten WHERE id=?",
-                    (row_id,)
-                ).fetchone()
-            if _row and _row["sanmat_gid"]:
-                _gid = _row["sanmat_gid"]
-                _name = _row["patient_name"] or _row["patient_typ"] or f"Patient {row_id}"
-                _sanmat.handle_quelle_geloescht(
-                    referenz_id=str(_gid),
-                    typ="GID",
-                    quelle_label=f"Pat.-Station: {_name}",
-                )
-            elif _row:
-                # Fallback für ältere Datensätze ohne sanmat_gid:
-                # Suche per Textmuster "Pat.-Station [typ]: name"
-                _patient_typ = (_row["patient_typ"] or "").strip()
-                _name = (_row["patient_name"] or _patient_typ or f"Patient {row_id}").strip()
-                _muster = f"Pat.-Station [{_patient_typ}]: {_name}"
-                _sanmat.handle_quelle_geloescht_textmuster(
-                    textmuster=_muster,
-                    quelle_label=f"Pat.-Station: {_name}",
-                )
-        except Exception:
-            pass
-    with _patienten_db() as con:
-        con.execute("DELETE FROM patienten WHERE id=?", (row_id,))
+            with _patienten_db() as con:
+                con.execute("DELETE FROM patienten WHERE id=?", (row_id,))
+            break
+        except Exception as _ex:
+            if _versuch < 2:
+                import time as _t; _t.sleep(0.4)
+            else:
+                raise
     try:
         from database.turso_sync import push_delete
         push_delete(_PATIENTEN_DB_PFAD, "patienten", row_id)
@@ -593,23 +606,29 @@ def einsatz_aktualisieren(row_id: int, daten: dict) -> None:
 def einsatz_loeschen(row_id: int) -> None:
     # Sanmat-Verbrauch prüfen: entweder löschen oder als Quelle-gelöscht markieren
     if _SanmatDB is not None:
-        try:
-            _sanmat = _SanmatDB()
-            _sanmat.initialize()
-            stichwort = f"Einsatz-ID {row_id}"
-            with _db() as _con:
-                _row = _con.execute(
-                    "SELECT einsatzstichwort FROM einsaetze WHERE id=?", (row_id,)
-                ).fetchone()
-                if _row:
-                    stichwort = _row["einsatzstichwort"] or stichwort
-            _sanmat.handle_quelle_geloescht(
-                referenz_id=str(row_id),
-                typ="ID",
-                quelle_label=f"Einsatz: {stichwort}",
-            )
-        except Exception:
-            pass
+        import time as _time_mod
+        for _versuch in range(3):
+            try:
+                _sanmat = _SanmatDB()
+                _sanmat.initialize()
+                stichwort = f"Einsatz-ID {row_id}"
+                with _db() as _con:
+                    _row = _con.execute(
+                        "SELECT einsatzstichwort FROM einsaetze WHERE id=?", (row_id,)
+                    ).fetchone()
+                    if _row:
+                        stichwort = _row["einsatzstichwort"] or stichwort
+                _sanmat.handle_quelle_geloescht(
+                    referenz_id=str(row_id),
+                    typ="ID",
+                    quelle_label=f"Einsatz: {stichwort}",
+                )
+                break  # Erfolg
+            except Exception as _ex:
+                if _versuch < 2:
+                    _time_mod.sleep(0.4)
+                else:
+                    print(f"[Sanmat] einsatz_loeschen {row_id}: Markierung fehlgeschlagen: {_ex}")
     with _db() as con:
         con.execute("DELETE FROM einsaetze WHERE id=?", (row_id,))
     try:
