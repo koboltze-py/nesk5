@@ -225,6 +225,16 @@ _FK_REPAIR_TABLES: list[tuple[str, str]] = [
     ("nesk3.db", "uebergabe_handy_eintraege"),
     ("nesk3.db", "uebergabe_fahrzeug_notizen"),
     ("nesk3.db", "uebergabe_verspaetungen"),
+    ("patienten_station.db", "medikamente"),
+    ("patienten_station.db", "verbrauchsmaterial"),
+]
+
+# Spalten-Migrationen die nach ensure_turso_schema laufen.
+# Format: (turso_tabellenname, spaltenname, typ_definition)
+# Werden per ALTER TABLE IF NOT EXISTS-äquivalent (Fehler ignoriert) angewendet.
+_TURSO_COLUMN_MIGRATIONS: list[tuple[str, str, str]] = [
+    ("pat__verbrauchsmaterial", "artikel_id", "INTEGER DEFAULT NULL"),
+    ("pat__patienten",          "sanmat_gid", "INTEGER DEFAULT NULL"),
 ]
 
 # Flag: Reparatur schon in dieser App-Session durchgeführt?
@@ -361,6 +371,15 @@ def ensure_turso_schema() -> None:
         _repair_fk_tables()
     except Exception as e:
         print(f"[Turso] FK-Reparatur-Fehler: {e}")
+
+    # Spalten-Migrationen: ALTER TABLE für nachträglich hinzugefügte Spalten
+    for _tbl, _col, _typedef in _TURSO_COLUMN_MIGRATIONS:
+        try:
+            _turso_execute_batch([{
+                "sql": f'ALTER TABLE "{_tbl}" ADD COLUMN "{_col}" {_typedef}'
+            }])
+        except Exception:
+            pass  # Spalte existiert bereits oder Tabelle noch nicht angelegt
 
 
 def _local_db_path(db_filename: str) -> str:
