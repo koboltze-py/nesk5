@@ -1019,8 +1019,14 @@ class SlotMachineDialog(QDialog):
 
         # Trigger-Priorität: Holding Spin > Free Games
         ball_count = sum(len(v) for v in ball_data.values())
-        if ball_count >= _HOLD_TRIGGER:
-            QTimer.singleShot(800, lambda: self._trigger_holdspin(ball_data, bet))
+        # Fester Trigger: 3+ Bälle auf verschiedenen Walzen
+        # Zufälliger Trigger: ab 1 Ball mit steigender Wahrscheinlichkeit
+        rand_hold_prob = {1: 0.08, 2: 0.35}.get(ball_count, 0.0)
+        do_hold = (ball_count >= _HOLD_TRIGGER
+                   or (ball_count >= 1 and random.random() < rand_hold_prob))
+        if do_hold and ball_data:
+            self._show_win_anim("🔮 HOLDING SPIN!", "#7e57c2")
+            QTimer.singleShot(1400, lambda: self._trigger_holdspin(ball_data, bet))
             return
 
         if alice_cnt >= 3:
@@ -1168,7 +1174,7 @@ class SlotMachineDialog(QDialog):
 
     # ── Free Games ─────────────────────────────────────────────────────────────
     def _trigger_freegames(self, alice_cnt: int) -> None:
-        extra = max(0, alice_cnt - 3) * _FS_RETRIG
+        extra = max(0, alice_cnt - 2) * _FS_RETRIG
         self._fs_total = _FS_BASE + extra
         self._fs_left  = self._fs_total
         self._fs_wins  = 0
@@ -1230,11 +1236,12 @@ class SlotMachineDialog(QDialog):
         for i, pb in enumerate(pod_bonuses):
             QTimer.singleShot(200 + i * 400, lambda p=pb: self._award_pod_bonus(p))
 
-        # Retrigger
+        # Retrigger ab 2× Alice
         alice_cnt = sum(1 for col in grid for s in col if s == ALICE_IDX)
-        if alice_cnt >= 3:
+        if alice_cnt >= 2:
             bonus = _FS_RETRIG * alice_cnt
             self._fs_left += bonus
+            self._show_win_anim(f"👸 +{bonus} SPINS!", "#e91e63")
             self._res_lbl.setText(f"👸  Retrigger! +{bonus} Free Spins!")
 
         # Sticky Wilds
@@ -1253,10 +1260,10 @@ class SlotMachineDialog(QDialog):
                            if s == sym or s == WILD_IDX}
                     self._reels[ri].flash_win(hit)
             parts = [f"{SYMBOLS[s][0]}×{l}=+{pr}" for s, l, w, pr in wins[:3]]
-            if alice_cnt < 3:
+            if alice_cnt < 2:
                 self._res_lbl.setText(f"✨{_FS_MULT}×  " + "  ".join(parts))
         else:
-            if alice_cnt < 3:
+            if alice_cnt < 2:
                 self._res_lbl.setText(f"⭐  {self._fs_left} Free Game(s) verbleibend")
 
         self._update_credits()
