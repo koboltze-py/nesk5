@@ -67,7 +67,12 @@ _BV_WGT  = [52, 26, 12,  6,  3,  2,  1,  1]
 
 # Holding Spin
 _HOLD_TRIGGER = 3    # Bälle auf mindestens 3 Walzen → Holding Spin (~1:80 Spins)
-_HOLD_RESPINS = 5
+_HOLD_RESPINS = 3    # Standard Lightning Link: immer 3 Respins
+
+# Jackpot-Stufen im Holding Spin (Multiplikator × Einsatz)
+_JP_LABELS = ["MINI", "MINOR", "MAJOR", "GRAND"]
+_JP_MULTS  = [  10,     35,     100,    350  ]
+_JP_PROBS  = [ 0.08,  0.03,   0.008,  0.001 ]   # pro Ball im Hold-Spin
 
 # Free Games
 _FS_BASE    = 10
@@ -93,6 +98,29 @@ def _ball_val(bet: int) -> int:
 
 def _ball_prob(bet_idx: int) -> float:
     return 0.10 + bet_idx * 0.012
+
+
+def _ball_val_hold(bet: int) -> tuple[int, str | None]:
+    """Ball-Wert während Hold & Respin – inkl. zufälliger Jackpot-Stufe."""
+    r = random.random()
+    cumulative = 0.0
+    for label, mult, prob in zip(_JP_LABELS, _JP_MULTS, _JP_PROBS):
+        cumulative += prob
+        if r < cumulative:
+            return (bet * mult, label)
+    m = random.choices(_BV_MUL, weights=_BV_WGT, k=1)[0]
+    return (max(1, bet * m // 10), None)
+
+
+def _hold_col(locked_rows: set[int]) -> list[int]:
+    """Hold-Spin Walze: jede Reihe unabhängig 28% Ball-Chance oder Rose (Blank)."""
+    col: list[int] = []
+    for row in range(_ROWS):
+        if row in locked_rows:
+            col.append(_rnd_ball())   # gesperrte Reihe – Overlay überlagert es
+        else:
+            col.append(_rnd_ball() if random.random() < 0.28 else 10)  # 10 = Rose als Blank
+    return col
 
 
 def _spin_col(bet_idx: int, extra_ball: float = 0.0) -> list[int]:
@@ -391,7 +419,9 @@ class _Reel(QWidget):
         self._flash:  float        = 0.0
         self.held:    bool         = False
         self._ht:     float        = 0.0
-        self._ball_vals: list[int | None] = [None, None, None]
+        self._ball_vals:    list[int | None]  = [None, None, None]
+        self._ball_labels:  list[str | None]  = [None, None, None]  # JP-Label
+        self.hold_mode:     bool              = False  # Hold-Spin-Modus: nicht-Bälle abdunkeln
         self.sweat:   bool         = False   # Sweat-Walze (Free Games)
         self._sw:     float        = 0.0    # Animations-Phase
 
@@ -445,8 +475,13 @@ class _Reel(QWidget):
         self._ball_vals[row] = val
         self.update()
 
+    def set_ball_label(self, row: int, label: str | None) -> None:
+        self._ball_labels[row] = label
+        self.update()
+
     def clear_ball_vals(self) -> None:
-        self._ball_vals = [None, None, None]
+        self._ball_vals   = [None, None, None]
+        self._ball_labels = [None, None, None]
         self.update()
     # ── Tick ───────────────────────────────────────────────────────────────────
     def tick(self) -> bool:
@@ -516,21 +551,33 @@ class _Reel(QWidget):
             fade = min(1.0, dist_top / (SH * 0.48), dist_bottom / (SH * 0.48))
             fade = max(0.0, fade)
 
-            draw_symbol(p, sym_i, W / 2.0, cy, SH * 0.38, fade)
+            # Im Hold-Modus nicht-Ball Symbole stark abdunkeln
+            sym_fade = fade
+            if (self.hold_mode and 0 <= k < _ROWS
+                    and sym_i not in IS_BALL
+                    and self._ball_vals[k] is None):
+                sym_fade = fade * 0.15
+            draw_symbol(p, sym_i, W / 2.0, cy, SH * 0.38, sym_fade)
 
-            # Ball-Kreditwert-Badge (nur bei Holding Spin, k in sichtbarem Bereich)
+            # Ball-Kreditwert-Badge mit optionalem Jackpot-Label
             if 0 <= k < _ROWS and self._ball_vals[k] is not None and fade > 0.25:
-                bv = self._ball_vals[k]
-                bw, bh = 38, 14
+                bv    = self._ball_vals[k]
+                label = self._ball_labels[k]
+                is_jp = label is not None
+                jp_colors = {"MINI": "#80cbc4", "MINOR": "#a5d6a7",
+                             "MAJOR": "#fff59d", "GRAND": "#ff8a65"}
+                badge_col = jp_colors.get(label, "#f9a825") if is_jp else "#f9a825"
+                bw, bh    = (48, 14) if is_jp else (38, 14)
                 p.setOpacity(fade * 0.95)
                 p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(QBrush(QColor(0, 0, 0, 190)))
+                p.setBrush(QBrush(QColor(60, 0, 40, 210) if is_jp else QColor(0, 0, 0, 190)))
                 p.drawRoundedRect(QRectF(W / 2 - bw / 2, cy + SH * 0.26, bw, bh), 4, 4)
                 bf = QFont("Segoe UI", 7, QFont.Weight.Bold)
                 p.setFont(bf)
-                p.setPen(QPen(QColor("#f9a825")))
+                p.setPen(QPen(QColor(badge_col)))
                 p.drawText(QRectF(W / 2 - bw / 2, cy + SH * 0.26, bw, bh),
-                           Qt.AlignmentFlag.AlignCenter, f"+{bv}")
+                           Qt.AlignmentFlag.AlignCenter,
+                           label if is_jp else f"+{bv}")
 
         p.setOpacity(1.0)
 
@@ -606,6 +653,7 @@ class SlotMachineDialog(QDialog):
         # Holding Spin
         self._hold_reels: set[int]                        = set()
         self._hold_vals:  dict[int, list[tuple[int,int]]] = {}   # reel→[(row,val)]
+        self._hold_jps:   dict[tuple[int,int], str | None] = {}  # (ri,row)→JP-Label
         self._hold_respins: int = 0
         self._hold_bet:     int = 0
 
@@ -1059,30 +1107,35 @@ class SlotMachineDialog(QDialog):
         self._mode = "idle"
         self._check_can_spin()
 
-    # ── Holding Spin ───────────────────────────────────────────────────────────
+    # ── Holding Spin  (Lightning Link Stil) ───────────────────────────────────
     def _trigger_holdspin(self, ball_data: dict[int, list[tuple[int,int]]],
                           bet: int) -> None:
         self._hold_reels   = set(ball_data.keys())
         self._hold_vals    = {ri: list(cells) for ri, cells in ball_data.items()}
+        self._hold_jps     = {}
         self._hold_respins = _HOLD_RESPINS
         self._hold_bet     = bet
 
         for ri, cells in ball_data.items():
-            self._reels[ri].held = True
+            r = self._reels[ri]
+            r.held      = True
+            r.hold_mode = True
             for row, val in cells:
-                self._reels[ri].set_ball_val(row, val)
+                r.set_ball_val(row, val)
+                r.set_ball_label(row, None)
+                self._hold_jps[(ri, row)] = None
+
+        for ri in range(_REELS):
+            if ri not in self._hold_reels:
+                self._reels[ri].hold_mode = True
 
         ball_count = sum(len(v) for v in ball_data.values())
         total_val  = sum(val for cells in ball_data.values() for _, val in cells)
-        self._show_win_anim(
-            f"🔮  HOLDING SPIN!  {ball_count} Bälle",
-            "#7e57c2"
-        )
         self._mode_lbl.setText(
-            f"🔮  HOLDING SPIN!  {ball_count} Bälle  ·  Wert: +{total_val}  ·  {_HOLD_RESPINS} Respins"
+            f"🔮  HOLD & RESPIN!  {ball_count} Bälle  ·  +{total_val}  ·  {_HOLD_RESPINS} Respins"
         )
         self._mode_lbl.show()
-        self._res_lbl.setText(f"🔮  {ball_count} Bonusbälle!  Holding Spin startet…")
+        self._res_lbl.setText(f"🔮  {ball_count} Bonusbälle!  Hold & Respin startet…")
         QTimer.singleShot(1600, self._run_holdspin)
 
     def _run_holdspin(self) -> None:
@@ -1091,14 +1144,18 @@ class SlotMachineDialog(QDialog):
             self._end_holdspin()
             return
 
-        total_val = sum(val for cells in self._hold_vals.values() for _, val in cells)
+        total_val   = sum(val for cells in self._hold_vals.values() for _, val in cells)
+        total_cells = sum(len(c) for c in self._hold_vals.values())
         self._mode_lbl.setText(
-            f"🔮  HOLDING  ·  {len(self._hold_reels)}/5 gesperrt  "
-            f"·  Wert: +{total_val}  ·  Respins: {self._hold_respins}"
+            f"🔮  HOLD  ·  {total_cells}/{_REELS * _ROWS} Zellen  "
+            f"·  +{total_val}  ·  {self._hold_respins} Respins"
         )
 
-        # Hohe Ball-Chance auf freien Walzen (40 %)
-        results = [_spin_col(self._bet_idx, extra_ball=0.35) for _ in range(_REELS)]
+        results: list[list[int]] = []
+        for ri in range(_REELS):
+            locked_rows = {row for row, _ in self._hold_vals.get(ri, [])}
+            results.append(_hold_col(locked_rows))
+
         self._mode = "holdspinning"
 
         for j, ri in enumerate(non_held):
@@ -1107,68 +1164,86 @@ class SlotMachineDialog(QDialog):
             t.timeout.connect(
                 lambda r=self._reels[ri], s=results[ri]: r.schedule_stop(s)
             )
-            t.start(280 + j * 220)
+            t.start(260 + j * 180)
             self._stop_timers.append(t)
 
     def _evaluate_holdspin(self) -> None:
         grid = self._grid()
-        new_balls: list[tuple[int,int,int]] = []
+        new_balls: list[tuple[int, int, int, str | None]] = []
 
         for ri in range(_REELS):
             if ri in self._hold_reels:
                 continue
+            locked_rows = {row for row, _ in self._hold_vals.get(ri, [])}
             for row, sym in enumerate(grid[ri]):
+                if row in locked_rows:
+                    continue
                 if sym in IS_BALL:
-                    val = _ball_val(self._hold_bet)
-                    new_balls.append((ri, row, val))
+                    val, jp_label = _ball_val_hold(self._hold_bet)
+                    new_balls.append((ri, row, val, jp_label))
                     pod = BALL_TO_POD[sym]
                     self._pod_heat[pod] = min(
-                        1.0,
-                        self._pod_heat[pod] + random.uniform(0.12, 0.30)
+                        1.0, self._pod_heat[pod] + random.uniform(0.12, 0.30)
                     )
                     self._pods_ui[pod].heat = self._pod_heat[pod]
                     if random.random() < self._pod_heat[pod] ** 1.6:
                         self._pods_ui[pod].flash_trigger()
                         self._pod_heat[pod] = 0.0
                         QTimer.singleShot(100, lambda pi=pod: setattr(
-                            self._pods_ui[pi], 'heat', 0.0)
-                        )
+                            self._pods_ui[pi], 'heat', 0.0))
                         QTimer.singleShot(200, lambda p=pod: self._award_pod_bonus(p))
 
         if new_balls:
-            for ri, row, val in new_balls:
+            for ri, row, val, lbl in new_balls:
                 self._hold_reels.add(ri)
                 self._hold_vals.setdefault(ri, []).append((row, val))
-                self._reels[ri].held = True
+                self._hold_jps[(ri, row)] = lbl
+                self._reels[ri].held      = True
+                self._reels[ri].hold_mode = True
                 self._reels[ri].set_ball_val(row, val)
+                self._reels[ri].set_ball_label(row, lbl)
             self._hold_respins = _HOLD_RESPINS
-            n = len({ri for ri, _, _ in new_balls})
+            total_cells = sum(len(c) for c in self._hold_vals.values())
             self._res_lbl.setText(
-                f"🔮  +{n} Walze(n) gesperrt!  Respins reset → {_HOLD_RESPINS}"
+                f"🔮  +{len(new_balls)} Ball/Bälle  ·  {total_cells}/{_REELS * _ROWS}"
+                f"  ·  Respins reset → {_HOLD_RESPINS}"
             )
         else:
             self._hold_respins -= 1
-            txt = (f"⏳  Kein neuer Ball  ·  {self._hold_respins} Respin(s)"
-                   if self._hold_respins > 0 else "🔮  Holding Spin endet…")
+            txt = (f"⏳  {self._hold_respins} Respin(s) verbleibend"
+                   if self._hold_respins > 0 else "🔮  Hold & Respin endet…")
             self._res_lbl.setText(txt)
 
-        total_val = sum(val for cells in self._hold_vals.values() for _, val in cells)
-        if self._hold_respins <= 0 or len(self._hold_reels) >= _REELS:
-            QTimer.singleShot(700, self._end_holdspin)
+        total_val   = sum(val for cells in self._hold_vals.values() for _, val in cells)
+        total_cells = sum(len(c) for c in self._hold_vals.values())
+        full_board  = (total_cells >= _REELS * _ROWS)
+
+        if self._hold_respins <= 0 or full_board:
+            delay = 300 if full_board else 700
+            QTimer.singleShot(delay, self._end_holdspin)
         else:
             self._mode_lbl.setText(
-                f"🔮  HOLDING  ·  {len(self._hold_reels)}/5 gesperrt  "
-                f"·  Wert: +{total_val}  ·  Respins: {self._hold_respins}"
+                f"🔮  HOLD  ·  {total_cells}/{_REELS * _ROWS} Zellen  "
+                f"·  +{total_val}  ·  {self._hold_respins} Respins"
             )
             QTimer.singleShot(700 if new_balls else 450, self._run_holdspin)
 
     def _end_holdspin(self) -> None:
-        total_val = sum(val for cells in self._hold_vals.values() for _, val in cells)
-        ball_cnt  = sum(len(c) for c in self._hold_vals.values())
+        total_val   = sum(val for cells in self._hold_vals.values() for _, val in cells)
+        ball_cnt    = sum(len(c) for c in self._hold_vals.values())
+        full_board  = (ball_cnt >= _REELS * _ROWS)
+
+        # Grand-Jackpot-Bonus bei vollem Brett (alle 15 Zellen)
+        grand_bonus = 0
+        if full_board:
+            grand_bonus  = BET_LEVELS[self._bet_idx] * 500
+            total_val   += grand_bonus
+
         self._credits += total_val
 
         for r in self._reels:
-            r.held = False
+            r.held      = False
+            r.hold_mode = False
             r.clear_ball_vals()
             if total_val > 0:
                 r.flash_win()
@@ -1178,20 +1253,36 @@ class SlotMachineDialog(QDialog):
         self._hold_respins = 0
         self._mode_lbl.hide()
 
-        if ball_cnt >= _REELS:
+        # JP-Tier höchste Stufe ermitteln
+        top_jp = None
+        for lbl in self._hold_jps.values():
+            if lbl == "GRAND":
+                top_jp = "GRAND"; break
+            elif lbl == "MAJOR" and top_jp not in ("GRAND",):
+                top_jp = "MAJOR"
+            elif lbl == "MINOR" and top_jp not in ("GRAND", "MAJOR"):
+                top_jp = "MINOR"
+            elif lbl == "MINI" and top_jp is None:
+                top_jp = "MINI"
+        self._hold_jps.clear()
+
+        if full_board:
+            msg = f"🏆  GRAND JACKPOT!  {ball_cnt}/15 Zellen  =  +{total_val} Credits!"
+            self._show_win_anim(f"🏆 GRAND JACKPOT! +{total_val}!", "#ff8a65")
+        elif top_jp == "MAJOR":
+            msg = f"💎  MAJOR!  {ball_cnt} Bälle  =  +{total_val} Credits!"
+            self._show_win_anim(f"💎 MAJOR! +{total_val}!", "#fff59d")
+        elif ball_cnt >= _REELS:
             msg = f"🎊  MEGA HOLD!  {ball_cnt} Bälle  =  +{total_val} Credits!  🔥"
-        elif ball_cnt >= 3:
+            self._show_win_anim(f"🔥 MEGA HOLD! +{total_val}!", "#ff6b35")
+        elif total_val >= BET_LEVELS[self._bet_idx] * 3:
             msg = f"✨  SUPER HOLD!  {ball_cnt} Bälle  =  +{total_val} Credits!"
+            self._show_win_anim(f"🔮 HOLD +{total_val} Credits!", "#c9a227")
         else:
-            msg = f"🔮  Holding Spin: {ball_cnt} Bälle  =  +{total_val} Credits"
+            msg = f"🔮  Hold & Respin: {ball_cnt} Bälle  =  +{total_val} Credits"
 
         self._res_lbl.setText(msg)
         self._update_credits()
-        # Bonus-Animation
-        if ball_cnt >= _REELS:
-            self._show_win_anim(f"🔥 MEGA HOLD! +{total_val}!", "#ff6b35")
-        elif total_val >= BET_LEVELS[self._bet_idx] * 3:
-            self._show_win_anim(f"🔮 HOLD +{total_val} Credits!", "#c9a227")
         self._mode = "idle"
         self._check_can_spin()
 
