@@ -1139,9 +1139,11 @@ class _MitarbeiterListeWidget(QWidget):
         self._tbl.setRowCount(len(daten))
 
         hh = self._tbl.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for i in range(1, len(cols)):
-            hh.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        for i in range(2, len(cols)):
+            hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
+        self._tbl.setColumnWidth(0, 220)
 
         grenze = len(daten) - anzahl_ohne  # erste Zeile der "ohne Einträge"-Gruppe
 
