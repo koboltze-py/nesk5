@@ -486,6 +486,28 @@ class _Reel(QWidget):
         self._ball_vals   = [None, None, None]
         self._ball_labels = [None, None, None]
         self.update()
+
+    # ── Per-Zell-Animation (Hold & Respin) ────────────────────────────────────
+    def mark_cell_pending(self, row: int) -> None:
+        """Markiert eine Zelle als 'wartet auf Start' (phase=-1)."""
+        self._cell_phase[row]  = -1.0
+        self._cell_target[row] = -1
+
+    def start_cell_anim(self, row: int, sym: int, ticks: int) -> None:
+        """Startet die Animation einer einzelnen Zelle."""
+        self._cell_target[row] = sym
+        self._cell_phase[row]  = float(max(1, ticks))
+
+    def reset_cell_anim(self) -> None:
+        """Setzt alle Zell-Animationen zurück (nach Ende des Hold & Respin)."""
+        self._cell_phase  = [0.0, 0.0, 0.0]
+        self._cell_target = [-1,  -1,  -1]
+
+    @property
+    def cell_anim_done(self) -> bool:
+        """True wenn alle Zellen fertig animiert sind (phase == 0)."""
+        return all(p == 0.0 for p in self._cell_phase)
+
     # ── Tick ───────────────────────────────────────────────────────────────────
     def tick(self) -> bool:
         # Per-Zell-Animation – laeuft immer, auch bei held=True

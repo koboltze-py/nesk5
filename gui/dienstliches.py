@@ -859,14 +859,13 @@ def export_patienten_excel(
     titel_zeitraum: str = "",
 ) -> str:
     """
-    Exportiert Patienten als DIN-A4-Protokollformulare (ein Blatt pro Patient).
+    Exportiert Patienten als tabellarische Listenansicht (wie GUI-Ansicht).
     Gibt den tatsächlichen Speicherpfad zurück.
     """
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         from openpyxl.utils import get_column_letter
-        from openpyxl.worksheet.page import PageMargins
     except ImportError as e:
         raise ImportError(
             "openpyxl ist nicht installiert. Bitte 'pip install openpyxl' ausführen."
@@ -875,294 +874,120 @@ def export_patienten_excel(
     os.makedirs(_PATIENTEN_EXPORT_DIR, exist_ok=True)
     if not ziel_pfad:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        ziel_pfad = os.path.join(_PATIENTEN_EXPORT_DIR, f"Patienten_Export_{ts}.xlsx")
+        ziel_pfad = os.path.join(_PATIENTEN_EXPORT_DIR, f"Patienten_Station_{ts}.xlsx")
 
     wb = openpyxl.Workbook()
-    wb.remove(wb.active)  # Standard-Sheet entfernen
+    ws = wb.active
+    ws.title = "Pat. Station"
 
-    # ── gemeinsame Stile ───────────────────────────────────────────────────
-    ROT     = "C8102E"
-    HELLROT = "FAD4DA"
-    GRAU    = "F5F5F5"
-    DUNKEL  = "333333"
-    thin    = Side(style="thin",   color="AAAAAA")
-    thick   = Side(style="medium", color="C8102E")
-    b_thin  = Border(left=thin, right=thin, top=thin, bottom=thin)
-    b_bot   = Border(bottom=Border(bottom=Side(style="thin", color="999999")).bottom)
+    # ── Stile ─────────────────────────────────────────────────────────────
+    blau   = "1565A8"
+    thin   = Side(style="thin", color="AAAAAA")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    hdr_font  = Font(bold=True, color="FFFFFF", size=11)
+    hdr_fill  = PatternFill("solid", fgColor=blau)
+    hdr_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    def _hdr(ws, row, col, text, span=1, fill=ROT, fsize=10, bold=True, color="FFFFFF"):
-        c = ws.cell(row=row, column=col, value=text)
-        c.font = Font(bold=bold, size=fsize, color=color)
-        c.fill = PatternFill("solid", fgColor=fill)
-        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        if span > 1:
-            ws.merge_cells(start_row=row, start_column=col,
-                           end_row=row, end_column=col + span - 1)
-        return c
+    # ── Titel ──────────────────────────────────────────────────────────────
+    ws.merge_cells("A1:M1")
+    tc = ws["A1"]
+    titel_text = "Patienten DRK Station FKB"
+    if titel_zeitraum:
+        titel_text += f"  |  {titel_zeitraum}"
+    tc.value = titel_text
+    tc.font  = Font(bold=True, size=13, color="FFFFFF")
+    tc.fill  = PatternFill("solid", fgColor=blau)
+    tc.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 28
 
-    def _lbl(ws, row, col, text, span=1, fsize=9, bold=True):
-        c = ws.cell(row=row, column=col, value=text)
-        c.font = Font(bold=bold, size=fsize, color=DUNKEL)
-        c.fill = PatternFill("solid", fgColor=GRAU)
-        c.alignment = Alignment(vertical="center", wrap_text=True)
-        if span > 1:
-            ws.merge_cells(start_row=row, start_column=col,
-                           end_row=row, end_column=col + span - 1)
-        return c
+    # ── Untertitel ─────────────────────────────────────────────────────────
+    ws.merge_cells("A2:M2")
+    sub = ws["A2"]
+    sub.value = (
+        f"Erstellt am {datetime.now().strftime('%d.%m.%Y %H:%M')}  –  "
+        f"{len(eintraege)} Patient(en)"
+    )
+    sub.font      = Font(italic=True, size=9, color="666666")
+    sub.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 16
 
-    def _val(ws, row, col, text="", span=1, fsize=9, bold=False, wrap=False):
-        c = ws.cell(row=row, column=col, value=text or "")
-        c.font = Font(bold=bold, size=fsize, color=DUNKEL)
-        c.alignment = Alignment(vertical="center", wrap_text=wrap)
-        c.border = b_thin
-        if span > 1:
-            ws.merge_cells(start_row=row, start_column=col,
-                           end_row=row, end_column=col + span - 1)
-        return c
+    # ── Spaltenüberschriften ────────────────────────────────────────────────
+    headers = [
+        "Nr.", "Datum", "Uhrzeit", "Dauer\n(Min.)",
+        "Typ", "Patient", "Alter", "Beschwerde",
+        "Ort", "Maßnahmen", "DRK MA 1", "Weitergeleitet", "BG-Fall",
+    ]
+    col_widths = [7, 13, 10, 10, 14, 26, 8, 30, 18, 30, 18, 16, 10]
+    for col, (h, w) in enumerate(zip(headers, col_widths), start=1):
+        cell = ws.cell(row=3, column=col, value=h)
+        cell.font      = hdr_font
+        cell.fill      = hdr_fill
+        cell.alignment = hdr_align
+        cell.border    = border
+        ws.column_dimensions[get_column_letter(col)].width = w
+    ws.row_dimensions[3].height = 32
 
-    def _handschrift(ws, row, col, span=1):
-        """Leeres Feld mit Hinweis 'handschriftlich'."""
-        c = ws.cell(row=row, column=col, value="____________________")
-        c.font = Font(italic=True, size=9, color="AAAAAA")
-        c.alignment = Alignment(vertical="bottom")
-        c.border = b_thin
-        if span > 1:
-            ws.merge_cells(start_row=row, start_column=col,
-                           end_row=row, end_column=col + span - 1)
-        return c
+    # ── Datenzeilen ────────────────────────────────────────────────────────
+    fill_alt   = PatternFill("solid", fgColor="F5F5F5")
+    fill_white = PatternFill("solid", fgColor="FFFFFF")
+    fill_bg    = PatternFill("solid", fgColor="FFF3E0")
 
-    # ── Pro Patient ein Sheet ──────────────────────────────────────────────
-    for idx, p in enumerate(eintraege, start=1):
-        sheet_name = f"Patient {idx}"
-        ws = wb.create_sheet(title=sheet_name)
+    for row_idx, p in enumerate(eintraege, start=1):
+        row_num   = row_idx + 3
+        name      = p.get("patient_name", "")
+        abtlg     = p.get("patient_abteilung", "")
+        display   = f"{name} ({abtlg})" if name and abtlg else (name or "—")
+        beschwerde = p.get("beschwerde_art", "") or p.get("symptome", "")
+        massnahmen = p.get("massnahmen", "")
+        dauer     = p.get("behandlungsdauer", 0) or 0
+        alter     = p.get("patient_alter", 0)
+        bg        = bool(p.get("arbeitsunfall"))
+        row_fill  = fill_bg if bg else (fill_alt if row_idx % 2 == 0 else fill_white)
 
-        # A4 Portrait, schmale Ränder
-        ws.page_setup.paperSize  = ws.PAPERSIZE_A4
-        ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
-        ws.page_setup.fitToPage  = True
-        ws.page_setup.fitToHeight = 1
-        ws.page_setup.fitToWidth  = 1
-        ws.page_margins = PageMargins(left=0.4, right=0.4, top=0.5, bottom=0.5,
-                                      header=0.2, footer=0.2)
+        values = [
+            row_idx,
+            p.get("datum", ""),
+            p.get("uhrzeit", ""),
+            dauer if dauer else "—",
+            p.get("patient_typ", "") or "—",
+            display,
+            str(alter) if alter else "—",
+            beschwerde,
+            p.get("unfall_ort", "") or "—",
+            massnahmen,
+            p.get("drk_ma1", "") or "—",
+            p.get("weitergeleitet", "") or "—",
+            "✓ BG" if bg else "—",
+        ]
+        center_cols = {1, 3, 4, 7, 13}
+        wrap_cols   = {8, 10}
+        for col, val in enumerate(values, start=1):
+            cell = ws.cell(row=row_num, column=col, value=val)
+            cell.fill   = row_fill
+            cell.border = border
+            if col in center_cols:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            elif col in wrap_cols:
+                cell.alignment = Alignment(vertical="center", wrap_text=True)
+            else:
+                cell.alignment = Alignment(vertical="center")
+        ws.row_dimensions[row_num].height = 16
 
-        # Spaltenbreiten (6 Spalten = bequem A4)
-        COLS = [3, 12, 12, 12, 12, 14]
-        for i, w in enumerate(COLS, 1):
-            ws.column_dimensions[get_column_letter(i)].width = w
+    # ── Statistik-Zeile ────────────────────────────────────────────────────
+    stat_row = len(eintraege) + 5
+    ws.merge_cells(f"A{stat_row}:M{stat_row}")
+    sc = ws.cell(row=stat_row, column=1)
+    bg_count = sum(1 for p in eintraege if p.get("arbeitsunfall"))
+    sc.value = (
+        f"Gesamt: {len(eintraege)} Patient(en)   ☑ BG-Fälle: {bg_count}"
+    )
+    sc.font  = Font(bold=True, size=10)
+    sc.fill  = PatternFill("solid", fgColor="E3F2FD")
+    sc.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[stat_row].height = 20
 
-        r = 1  # aktueller Row-Zähler
-
-        # ── Kopfzeile ──────────────────────────────────────────────────────
-        ws.merge_cells(f"A{r}:F{r}")
-        c = ws.cell(row=r, column=1,
-                    value=" 🏥  Patientenprotokoll – DRK Erste-Hilfe-Station FKB (DRK)")
-        c.font = Font(bold=True, size=13, color="FFFFFF")
-        c.fill = PatternFill("solid", fgColor=ROT)
-        c.alignment = Alignment(horizontal="center", vertical="center")
-        ws.row_dimensions[r].height = 26
-        r += 1
-
-        ws.merge_cells(f"A{r}:F{r}")
-        sub = ws.cell(row=r, column=1,
-                      value=f"Erstellt: {datetime.now().strftime('%d.%m.%Y %H:%M')}   "
-                            f"|   Patient Nr. {idx} von {len(eintraege)}")
-        sub.font = Font(italic=True, size=8, color="777777")
-        sub.alignment = Alignment(horizontal="center", vertical="center")
-        ws.row_dimensions[r].height = 12
-        r += 1
-
-        # ── Abschnitt 1: Basisdaten ────────────────────────────────────────
-        _hdr(ws, r, 1, "BASISDATEN", span=6, fsize=9)
-        ws.row_dimensions[r].height = 15
-        r += 1
-
-        # Datum | Uhrzeit | Behandlungsdauer
-        _lbl(ws, r, 1, "Datum")
-        _val(ws, r, 2, p.get("datum", ""))
-        _lbl(ws, r, 3, "Uhrzeit")
-        _val(ws, r, 4, p.get("uhrzeit", ""))
-        _lbl(ws, r, 5, "Dauer (Min.)")
-        _val(ws, r, 6, p.get("behandlungsdauer", "") or "")
-        ws.row_dimensions[r].height = 16
-        r += 1
-
-        # Typ | BG-Fall
-        _lbl(ws, r, 1, "Personentyp")
-        _val(ws, r, 2, p.get("patient_typ", "") or "", span=3)
-        _lbl(ws, r, 5, "BG-Fall")
-        _val(ws, r, 6, "Ja" if p.get("arbeitsunfall") else "Nein")
-        ws.row_dimensions[r].height = 16
-        r += 1
-
-        # Abteilung
-        _lbl(ws, r, 1, "Abteilung")
-        _val(ws, r, 2, p.get("patient_abteilung", "") or "", span=5)
-        ws.row_dimensions[r].height = 16
-        r += 1
-
-        # ── Abschnitt 2: Patient (handschriftlich) ─────────────────────────
-        _hdr(ws, r, 1, "PATIENTENDATEN  (handschriftlich – nicht digital gespeichert)",
-             span=6, fsize=9, fill="8B1A1A")
-        ws.row_dimensions[r].height = 15
-        r += 1
-
-        _lbl(ws, r, 1, "Name")
-        _handschrift(ws, r, 2, span=2)
-        _lbl(ws, r, 4, "Geburtsdatum")
-        _handschrift(ws, r, 5, span=2)
-        ws.row_dimensions[r].height = 18
-        r += 1
-
-        _lbl(ws, r, 1, "Geschlecht")
-        _val(ws, r, 2, p.get("geschlecht", "") or "", span=2)
-        _lbl(ws, r, 4, "Alter (ca.)")
-        _handschrift(ws, r, 5, span=2)
-        ws.row_dimensions[r].height = 18
-        r += 1
-
-        # ── Abschnitt 3: Ereignis ──────────────────────────────────────────
-        _hdr(ws, r, 1, "EREIGNIS", span=6, fsize=9)
-        ws.row_dimensions[r].height = 14
-        r += 1
-
-        _lbl(ws, r, 1, "Was")
-        _val(ws, r, 2, p.get("hergang_was", "") or "", span=5, wrap=True)
-        ws.row_dimensions[r].height = 32
-        r += 1
-
-        _lbl(ws, r, 1, "Wie")
-        _val(ws, r, 2, p.get("hergang_wie", "") or "", span=5, wrap=True)
-        ws.row_dimensions[r].height = 26
-        r += 1
-
-        _lbl(ws, r, 1, "Wo")
-        _val(ws, r, 2, p.get("unfall_ort", "") or "", span=5)
-        ws.row_dimensions[r].height = 16
-        r += 1
-
-        # ── Abschnitt 4: Beschwerdebild ────────────────────────────────────
-        _hdr(ws, r, 1, "BESCHWERDEBILD / SYMPTOME", span=6, fsize=9)
-        ws.row_dimensions[r].height = 14
-        r += 1
-
-        _lbl(ws, r, 1, "Art")
-        _val(ws, r, 2, p.get("beschwerde_art", "") or "", span=5)
-        ws.row_dimensions[r].height = 16
-        r += 1
-
-        _lbl(ws, r, 1, "Symptome")
-        _val(ws, r, 2, p.get("symptome", "") or "", span=5, wrap=True)
-        ws.row_dimensions[r].height = 28
-        r += 1
-
-        # ── Abschnitt 5: ABCDE ────────────────────────────────────────────
-        _hdr(ws, r, 1, "ABCDE-SCHEMA", span=6, fsize=9)
-        ws.row_dimensions[r].height = 14
-        r += 1
-
-        for letter, key in [("A – Atemweg", "abcde_a"), ("B – Atmung", "abcde_b"),
-                              ("C – Kreislauf", "abcde_c"), ("D – Neurologie", "abcde_d"),
-                              ("E – Exposition", "abcde_e")]:
-            _lbl(ws, r, 1, letter)
-            _val(ws, r, 2, p.get(key, "") or "", span=5)
-            ws.row_dimensions[r].height = 15
-            r += 1
-
-        # ── Abschnitt 6: Monitoring ────────────────────────────────────────
-        _hdr(ws, r, 1, "MONITORING", span=6, fsize=9)
-        ws.row_dimensions[r].height = 14
-        r += 1
-
-        _lbl(ws, r, 1, "BZ")
-        _val(ws, r, 2, p.get("monitoring_bz", "") or "")
-        _lbl(ws, r, 3, "RR")
-        _val(ws, r, 4, p.get("monitoring_rr", "") or "")
-        _lbl(ws, r, 5, "SpO₂")
-        _val(ws, r, 6, p.get("monitoring_spo2", "") or "")
-        ws.row_dimensions[r].height = 16
-        r += 1
-
-        _lbl(ws, r, 1, "HF")
-        _val(ws, r, 2, p.get("monitoring_hf", "") or "", span=5)
-        ws.row_dimensions[r].height = 15
-        r += 1
-
-        # ── Abschnitt 7: Diagnostik / Therapie ────────────────────────────
-        _hdr(ws, r, 1, "DIAGNOSE / MAßNAHMEN", span=6, fsize=9)
-        ws.row_dimensions[r].height = 14
-        r += 1
-
-        _lbl(ws, r, 1, "Diagnose")
-        _val(ws, r, 2, p.get("diagnose", "") or "", span=5, wrap=True)
-        ws.row_dimensions[r].height = 26
-        r += 1
-
-        _lbl(ws, r, 1, "Maßnahmen")
-        _val(ws, r, 2, p.get("massnahmen", "") or "", span=5, wrap=True)
-        ws.row_dimensions[r].height = 32
-        r += 1
-
-        # ── Abschnitt 8: Vorerkrankungen / Medikamente ────────────────────
-        _hdr(ws, r, 1, "ANAMNESE", span=6, fsize=9)
-        ws.row_dimensions[r].height = 14
-        r += 1
-
-        _lbl(ws, r, 1, "Vorerkrank.")
-        _val(ws, r, 2, p.get("vorerkrankungen", "") or "", span=5, wrap=True)
-        ws.row_dimensions[r].height = 22
-        r += 1
-
-        _lbl(ws, r, 1, "Med. Patient")
-        _val(ws, r, 2, p.get("medikamente_patient", "") or "", span=5, wrap=True)
-        ws.row_dimensions[r].height = 22
-        r += 1
-
-        # ── Abschnitt 9: BG-Fall ───────────────────────────────────────────
-        if p.get("arbeitsunfall"):
-            _hdr(ws, r, 1, "⚠  ARBEITSUNFALL / BG-FALL", span=6, fsize=9, fill="8B4513")
-            ws.row_dimensions[r].height = 14
-            r += 1
-            _lbl(ws, r, 1, "Details")
-            _val(ws, r, 2, p.get("arbeitsunfall_details", "") or "", span=5, wrap=True)
-            ws.row_dimensions[r].height = 22
-            r += 1
-
-        # ── Abschnitt 10: Abschluss ────────────────────────────────────────
-        _hdr(ws, r, 1, "WEITERGABE / ABSCHLUSS", span=6, fsize=9)
-        ws.row_dimensions[r].height = 14
-        r += 1
-
-        _lbl(ws, r, 1, "Werterleitet")
-        _val(ws, r, 2, p.get("weitergeleitet", "") or "", span=5)
-        ws.row_dimensions[r].height = 16
-        r += 1
-
-        _lbl(ws, r, 1, "Bemerkung")
-        _val(ws, r, 2, p.get("bemerkung", "") or "", span=5, wrap=True)
-        ws.row_dimensions[r].height = 26
-        r += 1
-
-        # ── Unterschriftszeile ─────────────────────────────────────────────
-        _hdr(ws, r, 1, "PERSONAL", span=6, fsize=9)
-        ws.row_dimensions[r].height = 14
-        r += 1
-
-        _lbl(ws, r, 1, "DRK MA 1")
-        _val(ws, r, 2, p.get("drk_ma1", "") or "", span=2)
-        _lbl(ws, r, 4, "DRK MA 2")
-        _val(ws, r, 5, p.get("drk_ma2", "") or "", span=2)
-        ws.row_dimensions[r].height = 16
-        r += 1
-
-        _lbl(ws, r, 1, "Unterschrift 1")
-        _handschrift(ws, r, 2, span=2)
-        _lbl(ws, r, 4, "Unterschrift 2")
-        _handschrift(ws, r, 5, span=2)
-        ws.row_dimensions[r].height = 22
-        r += 1
-
-        # ── Druckbereich festlegen ─────────────────────────────────────────
-        ws.print_area = f"A1:{get_column_letter(6)}{r-1}"
+    ws.freeze_panes = "A4"
+    ws.auto_filter.ref = f"A3:{get_column_letter(len(headers))}3"
 
     wb.save(ziel_pfad)
     try:
@@ -3738,12 +3563,13 @@ class _DatumsbereichDialog(QDialog):
         "padding:4px; font-size:12px; background:white;}"
     )
 
-    def __init__(self, eintraege: list[dict], parent=None):
+    def __init__(self, eintraege: list[dict], parent=None, einheit: str = "Einträge"):
         super().__init__(parent)
         self.setWindowTitle("📅  Datumszeitraum wählen")
         self.setMinimumWidth(400)
         self.setFixedHeight(230)
         self._alle = eintraege
+        self._einheit = einheit
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
@@ -3836,14 +3662,14 @@ class _DatumsbereichDialog(QDialog):
         von = self._von.date().toString("dd.MM.yyyy")
         bis = self._bis.date().toString("dd.MM.yyyy")
         self._treffer_lbl.setText(
-            f"📊  {n} Einsatz/ätze im Zeitraum {von} – {bis}"
+            f"📊  {n} {self._einheit} im Zeitraum {von} – {bis}"
         )
 
     def _on_accept(self):
         if not self._filter():
             QMessageBox.warning(
                 self, "Keine Einträge",
-                "Im gewählten Zeitraum gibt es keine Einsätze."
+                f"Im gewählten Zeitraum gibt es keine {self._einheit}."
             )
             return
         self.accept()
@@ -3855,6 +3681,11 @@ class _DatumsbereichDialog(QDialog):
         von = self._von.date().toString("dd.MM.yyyy")
         bis = self._bis.date().toString("dd.MM.yyyy")
         return f"{von} – {bis}"
+
+    def get_dateiname_zeitraum(self) -> str:
+        von = self._von.date().toString("yyyy-MM-dd")
+        bis = self._bis.date().toString("yyyy-MM-dd")
+        return f"{von}_bis_{bis}"
 
 
 class _MailDialog(QDialog):
@@ -3870,10 +3701,33 @@ class _MailDialog(QDialog):
         excel_pfad: str,
         zeitraum: str,
         anzahl: int,
+        typ: str = "einsatz",
         parent=None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("📧  Einsatzprotokoll per E-Mail senden")
+        if typ == "patient":
+            fenster_titel = "📧  Patientenliste per E-Mail senden"
+            betreff_text  = f"Patientenliste Station FKB – {zeitraum}  ({anzahl} Patienten)"
+            body_text = (
+                f"Hallo,\n\n"
+                f"anbei die Liste der Patienten auf der DRK-Station FKB für den Zeitraum "
+                f"{zeitraum} ({anzahl} Patienten).\n\n"
+                f"Die Liste ist als Excel-Datei angehängt.\n\n"
+                f"Mit freundlichen Grüßen\n"
+                f"DRK-Kreisverband Köln e.V."
+            )
+        else:
+            fenster_titel = "📧  Einsatzprotokoll per E-Mail senden"
+            betreff_text  = f"Einsatzprotokoll FKB – {zeitraum}  ({anzahl} Einsätze)"
+            body_text = (
+                f"Hallo,\n\n"
+                f"anbei das Einsatzprotokoll für den Zeitraum {zeitraum} "
+                f"({anzahl} Einsätze).\n\n"
+                f"Das Protokoll ist als Excel-Datei angehängt.\n\n"
+                f"Mit freundlichen Grüßen\n"
+                f"DRK-Kreisverband Köln e.V."
+            )
+        self.setWindowTitle(fenster_titel)
         self.setMinimumWidth(500)
         self.resize(540, 420)
         self._excel_pfad = excel_pfad
@@ -3882,14 +3736,12 @@ class _MailDialog(QDialog):
         fl.setSpacing(8)
 
         self._empfaenger = QLineEdit()
-        self._empfaenger.setPlaceholderText("empfaenger@drk-koeln.de")
+        self._empfaenger.setText("erste-hilfe-station-flughafen@drk-koeln.de")
         self._empfaenger.setStyleSheet(self._FIELD_STYLE)
         fl.addRow("Empfänger:", self._empfaenger)
 
         self._betreff = QLineEdit()
-        self._betreff.setText(
-            f"Einsatzprotokoll FKB – {zeitraum}  ({anzahl} Einsätze)"
-        )
+        self._betreff.setText(betreff_text)
         self._betreff.setStyleSheet(self._FIELD_STYLE)
         fl.addRow("Betreff:", self._betreff)
 
@@ -3898,14 +3750,7 @@ class _MailDialog(QDialog):
 
         self._body = QTextEdit()
         self._body.setStyleSheet(self._FIELD_STYLE)
-        self._body.setPlainText(
-            f"Hallo,\n\n"
-            f"anbei das Einsatzprotokoll für den Zeitraum {zeitraum} "
-            f"({anzahl} Einsätze).\n\n"
-            f"Das Protokoll ist als Excel-Datei angehängt.\n\n"
-            f"Mit freundlichen Grüßen\n"
-            f"DRK-Kreisverband Köln e.V."
-        )
+        self._body.setPlainText(body_text)
         self._body.setMinimumHeight(140)
         layout.addWidget(self._body, 1)
 
