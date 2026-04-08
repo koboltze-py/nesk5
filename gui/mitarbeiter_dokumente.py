@@ -1254,6 +1254,115 @@ def _verspaetungen_als_excel_speichern(eintraege: list[dict], pfad: str) -> None
     # ── Auto-Filter aktivieren ───────────────────────────────────────────────
     ws.auto_filter.ref = f"A1:{get_column_letter(len(spalten))}1"
 
+    # ── Statistik-Blatt ───────────────────────────────────────────────────────
+    from collections import defaultdict, Counter
+    from datetime import datetime as _dt
+
+    def _parse_datum(d):
+        try:
+            return _dt.strptime(d, "%d.%m.%Y")
+        except ValueError:
+            return None
+
+    nur_verspaetet = [e for e in eintraege if (e.get("verspaetung_min") or 0) > 0]
+
+    gruppen: dict[str, list] = defaultdict(list)
+    for e in nur_verspaetet:
+        gruppen[e.get("mitarbeiter", "Unbekannt")].append(e)
+
+    stat_zeilen = []
+    for ma, eintr in gruppen.items():
+        minuten = [e.get("verspaetung_min") or 0 for e in eintr if (e.get("verspaetung_min") or 0) > 0]
+        if not minuten:
+            continue
+        avg = round(sum(minuten) / len(minuten), 1)
+        dienste = Counter(e.get("dienst", "") for e in eintr)
+        haeufigster = dienste.most_common(1)[0][0] if dienste else "—"
+        daten = sorted(
+            [p for e in eintr if (p := _parse_datum(e.get("datum", "")))],
+            reverse=True,
+        )
+        letztes = daten[0].strftime("%d.%m.%Y") if daten else "—"
+        stat_zeilen.append((ma, len(minuten), avg, min(minuten), max(minuten), haeufigster, letztes))
+    stat_zeilen.sort(key=lambda x: x[1], reverse=True)
+
+    alle_min = [e.get("verspaetung_min") or 0 for e in nur_verspaetet]
+
+    ws2 = wb.create_sheet("Statistik")
+
+    # KPI-Überschrift
+    kpi_titel_fill = PatternFill("solid", fgColor="1565A8")
+    kpi_titel_font = Font(name="Calibri", bold=True, color="FFFFFF", size=12)
+    ws2.merge_cells("A1:B1")
+    ws2["A1"] = "Kennzahlen"
+    ws2["A1"].font = kpi_titel_font
+    ws2["A1"].fill = kpi_titel_fill
+    ws2["A1"].alignment = center_align
+
+    kpi_label_font = Font(name="Calibri", bold=True, size=11)
+    kpi_val_font   = Font(name="Calibri", size=11)
+    kpi_fill       = PatternFill("solid", fgColor="E3F2FD")
+    kpi_daten = [
+        ("Verspätungen gesamt",   len(alle_min)),
+        ("Betroffene Mitarbeiter", len(gruppen)),
+        ("Ø Minuten",              round(sum(alle_min) / len(alle_min), 1) if alle_min else 0),
+        ("Max. Minuten",           max(alle_min) if alle_min else 0),
+    ]
+    for row_off, (name, wert) in enumerate(kpi_daten, start=2):
+        lbl = ws2.cell(row=row_off, column=1, value=name)
+        lbl.font = kpi_label_font
+        lbl.fill = kpi_fill
+        lbl.border = thin_border
+        lbl.alignment = left_align
+        val = ws2.cell(row=row_off, column=2, value=wert)
+        val.font = kpi_val_font
+        val.fill = kpi_fill
+        val.border = thin_border
+        val.alignment = center_align
+    ws2.column_dimensions["A"].width = 26
+    ws2.column_dimensions["B"].width = 16
+
+    # Leerzeile
+    trenn_row = len(kpi_daten) + 3  # 2 (Start) + len + 1 Leerzeile
+
+    # Statistik-Tabellenkopf
+    stat_spalten = [
+        ("Mitarbeiter",        28),
+        ("Anzahl",             10),
+        ("Ø Min.",             10),
+        ("Min. Min.",          11),
+        ("Max. Min.",          11),
+        ("Häufigster Dienst",  18),
+        ("Letztes Datum",      15),
+    ]
+    for col_idx, (titel, breite) in enumerate(stat_spalten, start=1):
+        cell = ws2.cell(row=trenn_row, column=col_idx, value=titel)
+        cell.font      = header_font
+        cell.fill      = header_fill
+        cell.alignment = center_align
+        cell.border    = thin_border
+        ws2.column_dimensions[get_column_letter(col_idx)].width = breite
+    ws2.row_dimensions[trenn_row].height = 22
+
+    # Statistik-Datenzeilen
+    farbe_hoch   = PatternFill("solid", fgColor="FFF8E1")
+    farbe_mittel = PatternFill("solid", fgColor="FFECB3")
+    for row_idx, (ma, anz, avg, mn, mx, dienst, letztes) in enumerate(stat_zeilen, start=trenn_row + 1):
+        row_farbe = farbe_hoch if anz >= 5 else (farbe_mittel if anz >= 3 else fill_white)
+        werte = [ma, anz, avg, mn, mx, dienst, letztes]
+        for col_idx, wert in enumerate(werte, start=1):
+            cell = ws2.cell(row=row_idx, column=col_idx, value=wert)
+            cell.border    = thin_border
+            cell.fill      = row_farbe
+            cell.alignment = left_align if col_idx in (1, 6) else center_align
+        ws2.row_dimensions[row_idx].height = 17
+
+    # Auto-Filter für Statistiktabelle
+    if stat_zeilen:
+        ws2.auto_filter.ref = (
+            f"A{trenn_row}:{get_column_letter(len(stat_spalten))}{trenn_row}"
+        )
+
     os.makedirs(os.path.dirname(pfad), exist_ok=True)
     wb.save(pfad)
 
