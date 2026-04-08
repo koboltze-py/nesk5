@@ -2029,6 +2029,11 @@ class MitarbeiterDokumenteWidget(QWidget):
         self._versp_btn_excel.clicked.connect(self._verspaetung_excel_export)
         vbtn_row.addWidget(self._versp_btn_excel)
 
+        self._versp_btn_excel_mail = _btn("📧  Excel per Mail", "#5c35cc", "#4a2aa0")
+        self._versp_btn_excel_mail.setToolTip("Excel-Datei auswählen und als Outlook-Entwurf an die Station senden")
+        self._versp_btn_excel_mail.clicked.connect(self._verspaetung_excel_mail_senden)
+        vbtn_row.addWidget(self._versp_btn_excel_mail)
+
         self._versp_btn_loeschen = _btn_light("🗑  Löschen")
         self._versp_btn_loeschen.setEnabled(False)
         self._versp_btn_loeschen.setToolTip("Eintrag aus Protokoll löschen (Dokument bleibt erhalten)")
@@ -2561,6 +2566,105 @@ class MitarbeiterDokumenteWidget(QWidget):
                 os.startfile(speicherpfad)
             except Exception as exc:
                 QMessageBox.warning(self, "Öffnen fehlgeschlagen", str(exc))
+
+    def _verspaetung_excel_mail_senden(self):
+        """Excel-Datei via Explorer auswählen und als Outlook-Entwurf an die Station senden."""
+        from PySide6.QtWidgets import QFileDialog
+
+        # ── Excel-Datei auswählen ─────────────────────────────────────────────
+        start_dir = _EXCEL_STANDARD_DIR if os.path.isdir(_EXCEL_STANDARD_DIR) else ""
+        excel_pfad, _ = QFileDialog.getOpenFileName(
+            self,
+            "Excel-Datei auswählen",
+            start_dir,
+            "Excel-Dateien (*.xlsx *.xls)",
+        )
+        if not excel_pfad:
+            return
+
+        datei_name = os.path.basename(excel_pfad)
+
+        # ── Mail-Dialog ───────────────────────────────────────────────────────
+        dlg = QDialog(self)
+        dlg.setWindowTitle("📧 Verspätungs-Übersicht per E-Mail senden")
+        dlg.setMinimumWidth(540)
+        vl = QVBoxLayout(dlg)
+        vl.setSpacing(10)
+        vl.setContentsMargins(20, 20, 20, 16)
+
+        form = QFormLayout()
+        form.setSpacing(8)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        emp_edit = QLineEdit("erste-hilfe-station-flughafen@drk-koeln.de")
+        form.addRow("Empfänger:", emp_edit)
+
+        betr_edit = QLineEdit(f"Verspätungs-Übersicht – {datei_name}")
+        form.addRow("Betreff:", betr_edit)
+
+        absender_edit = QLineEdit()
+        absender_edit.setPlaceholderText("Vor- und Nachname …")
+        form.addRow("Absender (Grüße):", absender_edit)
+
+        body_edit = QTextEdit()
+        body_edit.setMinimumHeight(160)
+
+        def _aktualisiere_body():
+            absender = absender_edit.text().strip()
+            gruss_zeile = f"\n{absender}" if absender else ""
+            body_edit.setPlainText(
+                "Guten Tag,\n\n"
+                "mit dieser E-Mail wird eine Übersicht über die Verspätungen gesendet.\n"
+                f"Die Excel-Datei befindet sich im Anhang: {datei_name}\n\n"
+                "Bei Rückfragen stehe ich gerne zur Verfügung.\n"
+                "\nMit freundlichen Grüßen\n"
+                f"{gruss_zeile}"
+            )
+
+        absender_edit.textChanged.connect(_aktualisiere_body)
+        _aktualisiere_body()
+
+        form.addRow("E-Mail-Text:", body_edit)
+
+        anhang_lbl = QLabel(f"📎 {datei_name}")
+        anhang_lbl.setStyleSheet("color:#555; font-size:11px;")
+        form.addRow("Anhang:", anhang_lbl)
+
+        vl.addLayout(form)
+
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet("color:#ddd;")
+        vl.addWidget(line)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        send_btn = _btn("📧  Outlook-Entwurf erstellen", "#5c35cc", "#4a2aa0")
+        send_btn.clicked.connect(dlg.accept)
+        close_btn = _btn_light("Abbrechen")
+        close_btn.clicked.connect(dlg.reject)
+        btn_row.addWidget(send_btn)
+        btn_row.addWidget(close_btn)
+        vl.addLayout(btn_row)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        try:
+            from functions.mail_functions import create_outlook_draft
+            create_outlook_draft(
+                to=emp_edit.text().strip(),
+                subject=betr_edit.text().strip(),
+                body=body_edit.toPlainText(),
+                attachments=[excel_pfad],
+            )
+            QMessageBox.information(
+                self, "Entwurf erstellt",
+                "Der Outlook-Entwurf wurde erfolgreich erstellt.\n"
+                "Bitte öffne Outlook und prüfe den Entwurfsordner."
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Fehler beim E-Mail-Erstellen", str(exc))
 
     def _verspaetung_mail_senden(self):
         """Outlook-Entwurf mit dem Verspätungsdokument als Anhang erstellen."""
