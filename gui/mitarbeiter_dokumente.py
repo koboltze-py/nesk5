@@ -2663,7 +2663,7 @@ class MitarbeiterDokumenteWidget(QWidget):
             create_outlook_draft(
                 to=emp_edit.text().strip(),
                 subject=betr_edit.text().strip(),
-                body=body_edit.toPlainText(),
+                body_text=body_edit.toPlainText(),
                 attachments=[excel_pfad],
             )
             QMessageBox.information(
@@ -2750,7 +2750,7 @@ class MitarbeiterDokumenteWidget(QWidget):
             create_outlook_draft(
                 to=emp_edit.text().strip(),
                 subject=betr_edit.text().strip(),
-                body=body_edit.toPlainText(),
+                body_text=body_edit.toPlainText(),
                 attachments=[pfad],
             )
             QMessageBox.information(
