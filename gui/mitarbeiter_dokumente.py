@@ -1321,15 +1321,18 @@ class _VerspaetungExportDialog(QDialog):
         # Speicherpfad
         pfad_row = QHBoxLayout()
         self._pfad_edit = QLineEdit()
-        heute = _dt.today()
-        std_name = f"Verspaetungen_{heute.strftime('%Y-%m')}.xlsx"
-        self._pfad_edit.setText(os.path.join(_EXCEL_STANDARD_DIR, std_name))
         pfad_row.addWidget(self._pfad_edit, 1)
         btn_browse = _btn_light("📂 …")
         btn_browse.setFixedWidth(40)
         btn_browse.clicked.connect(self._pfad_auswaehlen)
         pfad_row.addWidget(btn_browse)
         form.addRow("Speicherpfad:", pfad_row)
+
+        # Datumfelder beobachten → Dateiname automatisch anpassen
+        # (nach _pfad_edit-Erstellung verbinden, damit der Slot sofort aufrufbar ist)
+        self._de_von.dateChanged.connect(self._dateiname_aktualisieren)
+        self._de_bis.dateChanged.connect(self._dateiname_aktualisieren)
+        self._dateiname_aktualisieren()  # initialen Dateinamen setzen
 
         vl.addLayout(form)
 
@@ -1354,7 +1357,6 @@ class _VerspaetungExportDialog(QDialog):
         from datetime import datetime as _dt
         from PySide6.QtCore import QDate
         heute = _dt.today()
-        # Zielmonat berechnen
         monat = heute.month + monate_offset
         jahr  = heute.year
         while monat < 1:
@@ -1366,26 +1368,30 @@ class _VerspaetungExportDialog(QDialog):
         import calendar
         letzter_tag = calendar.monthrange(jahr, monat)[1]
         if monate_offset == 0:
-            # Aktueller Monat: 1. bis heute
             von = _dt(jahr, monat, 1)
             bis = heute
-            # Dateiname anpassen
-            std_name = f"Verspaetungen_{heute.strftime('%Y-%m')}.xlsx"
         elif monate_offset == -1:
             von = _dt(jahr, monat, 1)
             bis = _dt(jahr, monat, letzter_tag)
-            std_name = f"Verspaetungen_{jahr}-{monat:02d}.xlsx"
         else:
-            # Quartal: zurück n Monate
             von = _dt(jahr, monat, 1)
             bis = heute
-            std_name = f"Verspaetungen_{von.strftime('%Y-%m')}_bis_{heute.strftime('%Y-%m')}.xlsx"
+        # Setzen löst dateChanged → _dateiname_aktualisieren automatisch aus
         self._de_von.setDate(QDate(von.year, von.month, von.day))
         self._de_bis.setDate(QDate(bis.year, bis.month, bis.day))
-        # Pfad-Name aktualisieren (nur Dateiname, Verzeichnis bleibt)
-        aktueller_pfad = self._pfad_edit.text()
-        verzeichnis = os.path.dirname(aktueller_pfad) if aktueller_pfad else _EXCEL_STANDARD_DIR
-        self._pfad_edit.setText(os.path.join(verzeichnis, std_name))
+
+    def _dateiname_aktualisieren(self):
+        """Setzt den Dateinamen automatisch auf den gewählten Zeitraum."""
+        verzeichnis = os.path.dirname(self._pfad_edit.text()) or _EXCEL_STANDARD_DIR
+        von_q = self._de_von.date()
+        bis_q = self._de_bis.date()
+        von_str = f"{von_q.year():04d}-{von_q.month():02d}-{von_q.day():02d}"
+        bis_str = f"{bis_q.year():04d}-{bis_q.month():02d}-{bis_q.day():02d}"
+        if von_str == bis_str:
+            datei_name = f"Verspaetungen_{von_str}.xlsx"
+        else:
+            datei_name = f"Verspaetungen_{von_str}_bis_{bis_str}.xlsx"
+        self._pfad_edit.setText(os.path.join(verzeichnis, datei_name))
 
     def _pfad_auswaehlen(self):
         from PySide6.QtWidgets import QFileDialog
@@ -1403,6 +1409,8 @@ class _VerspaetungExportDialog(QDialog):
         bis_q = self._de_bis.date()
         self._von  = _dt(von_q.year(), von_q.month(), von_q.day())
         self._bis  = _dt(bis_q.year(), bis_q.month(), bis_q.day(), 23, 59, 59)
+        # Dateiname nochmals auf aktuellen Zeitraum setzen (falls Nutzer ihn nicht manuell geändert hat)
+        self._dateiname_aktualisieren()
         self._pfad = self._pfad_edit.text().strip()
         if not self._pfad:
             QMessageBox.warning(self, "Kein Pfad", "Bitte einen Speicherpfad angeben.")
