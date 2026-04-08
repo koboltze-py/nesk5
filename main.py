@@ -79,6 +79,58 @@ def _db_startup_backup():
         print(f"[WARNUNG] DB-Backup fehlgeschlagen: {e}")
 
 
+def _verspaetung_monats_auto_export():
+    """
+    Wird beim Start geprüft: Ist heute der 1. eines Monats und wurde der
+    automatische Vormonats-Export noch nicht erstellt, wird er jetzt erstellt.
+    Speicherpfad: Daten/Spät/Monatsliste/Auto Liste/
+    """
+    try:
+        heute = datetime.now()
+        if heute.day != 1:
+            return  # nur am 1. des Monats
+
+        # Vormonat berechnen
+        import calendar
+        if heute.month == 1:
+            vm_jahr, vm_monat = heute.year - 1, 12
+        else:
+            vm_jahr, vm_monat = heute.year, heute.month - 1
+        letzter_tag = calendar.monthrange(vm_jahr, vm_monat)[1]
+
+        vormonat_name = f"Verspaetungen_{vm_jahr}-{vm_monat:02d}_Auto.xlsx"
+        auto_dir = (
+            "C:\\Users\\DRKairport\\OneDrive - Deutsches Rotes Kreuz - Kreisverband Köln e.V\\"
+            "Dateien von Erste-Hilfe-Station-Flughafen - DRK Köln e.V_ - !Gemeinsam.26\\"
+            "Nesk\\Nesk3\\Daten\\Spät\\Monatsliste\\Auto Liste"
+        )
+        ziel_pfad = os.path.join(auto_dir, vormonat_name)
+
+        if os.path.isfile(ziel_pfad):
+            print(f"[INFO] Vormonats-Excel bereits vorhanden: {vormonat_name}")
+            return
+
+        from datetime import datetime as _dt
+        datum_von = _dt(vm_jahr, vm_monat, 1)
+        datum_bis = _dt(vm_jahr, vm_monat, letzter_tag, 23, 59, 59)
+
+        from functions.verspaetung_db import lade_verspaetungen
+        from gui.mitarbeiter_dokumente import _verspaetungen_als_excel_speichern
+
+        eintraege = lade_verspaetungen(monat=vm_monat, jahr=vm_jahr)
+        eintraege.sort(
+            key=lambda e: (
+                lambda d: _dt.strptime(d, "%d.%m.%Y") if d else _dt.min
+            )(e.get("datum", "")),
+            reverse=True,
+        )
+
+        _verspaetungen_als_excel_speichern(eintraege, ziel_pfad)
+        print(f"[OK] Automatischer Vormonats-Export: {vormonat_name} ({len(eintraege)} Einträge)")
+    except Exception as e:
+        print(f"[WARNUNG] Automatischer Excel-Export fehlgeschlagen: {e}")
+
+
 def _taeglich_gemeinsam_backup():
     """
     Wird einmal täglich im Hintergrund ausgeführt (nach Fenster-Start).
@@ -295,6 +347,9 @@ def main():
 
     # Tägliches Gemeinsam-Backup im Hintergrund (nach Fenster-Start, blockiert UI nicht)
     threading.Thread(target=_taeglich_gemeinsam_backup, daemon=True).start()
+
+    # Automatischer Vormonats-Excel-Export am 1. des Monats
+    threading.Thread(target=_verspaetung_monats_auto_export, daemon=True).start()
 
     sys.exit(app.exec())
 

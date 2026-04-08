@@ -1155,6 +1155,272 @@ class _SchulungDialog(QDialog):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  Excel-Export Hilfsfunktionen
+# ══════════════════════════════════════════════════════════════════════════════
+
+_EXCEL_STANDARD_DIR = (
+    "C:\\Users\\DRKairport\\OneDrive - Deutsches Rotes Kreuz - Kreisverband Köln e.V\\"
+    "Dateien von Erste-Hilfe-Station-Flughafen - DRK Köln e.V_ - !Gemeinsam.26\\"
+    "Nesk\\Nesk3\\Daten\\Spät\\Monatsliste"
+)
+_EXCEL_AUTO_DIR = os.path.join(_EXCEL_STANDARD_DIR, "Auto Liste")
+
+
+def _verspaetungen_als_excel_speichern(eintraege: list[dict], pfad: str) -> None:
+    """Speichert eine Liste von Verspätungs-Einträgen als Excel-Datei."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Verspätungs-Protokoll"
+
+    # ── Kopfzeile ────────────────────────────────────────────────────────────
+    header_font  = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
+    header_fill  = PatternFill("solid", fgColor="1565A8")
+    center_align = Alignment(horizontal="center", vertical="center", wrap_text=False)
+    left_align   = Alignment(horizontal="left",   vertical="center")
+    thin_border  = Border(
+        left=Side(style="thin", color="CCCCCC"),
+        right=Side(style="thin", color="CCCCCC"),
+        top=Side(style="thin", color="CCCCCC"),
+        bottom=Side(style="thin", color="CCCCCC"),
+    )
+
+    spalten = [
+        ("Datum",          14),
+        ("Mitarbeiter",    28),
+        ("Dienst",         10),
+        ("Dienstbeginn",   14),
+        ("Dienstantritt",  15),
+        ("Verspätung",     14),
+        ("Aufgenommen von", 20),
+        ("Begründung",     40),
+        ("ID",              8),
+    ]
+    for col_idx, (titel, breite) in enumerate(spalten, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=titel)
+        cell.font   = header_font
+        cell.fill   = header_fill
+        cell.alignment = center_align
+        cell.border = thin_border
+        ws.column_dimensions[get_column_letter(col_idx)].width = breite
+
+    ws.row_dimensions[1].height = 22
+
+    # ── Datenzeilen ──────────────────────────────────────────────────────────
+    fill_gelb  = PatternFill("solid", fgColor="FFF3CD")
+    fill_gruen = PatternFill("solid", fgColor="D4EDDA")
+    fill_white = PatternFill("solid", fgColor="FFFFFF")
+    fill_alt   = PatternFill("solid", fgColor="F5F5F5")
+
+    for row_idx, e in enumerate(eintraege, start=2):
+        vmin = e.get("verspaetung_min") or 0
+        if vmin > 0:
+            versp_text = f"{vmin} Min. zu spät"
+            row_fill   = fill_gelb
+        elif vmin < 0:
+            versp_text = f"{abs(vmin)} Min. früh"
+            row_fill   = fill_gruen
+        else:
+            versp_text = "Pünktlich"
+            row_fill   = fill_gruen
+
+        zeile = [
+            e.get("datum", ""),
+            e.get("mitarbeiter", ""),
+            e.get("dienst", ""),
+            e.get("dienstbeginn", ""),
+            e.get("dienstantritt", ""),
+            versp_text,
+            e.get("aufgenommen_von", "") or "",
+            e.get("begruendung", "") or "",
+            e.get("id", ""),
+        ]
+        alt_fill = fill_alt if row_idx % 2 == 0 else fill_white
+        for col_idx, wert in enumerate(zeile, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=wert)
+            cell.border    = thin_border
+            cell.alignment = center_align if col_idx in (1, 3, 4, 5, 6, 9) else left_align
+            # Verspätungsspalte bekommt eigene Farbe, Rest Zebrastreifen
+            if col_idx == 6:
+                cell.fill = row_fill
+            else:
+                cell.fill = alt_fill
+
+        ws.row_dimensions[row_idx].height = 17
+
+    # ── Auto-Filter aktivieren ───────────────────────────────────────────────
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(spalten))}1"
+
+    os.makedirs(os.path.dirname(pfad), exist_ok=True)
+    wb.save(pfad)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Excel-Export-Dialog
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _VerspaetungExportDialog(QDialog):
+    """Dialog zur Auswahl des Datumsbereichs und Speicherpfads für den Excel-Export."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("📊 Excel-Export – Verspätungs-Protokoll")
+        self.setMinimumWidth(480)
+        from datetime import datetime as _dt
+        heute = _dt.today()
+        # Standard: aktueller Monat
+        self._von  = _dt(heute.year, heute.month, 1)
+        self._bis  = heute
+        self._pfad = ""
+        self._build_ui()
+
+    def _build_ui(self):
+        from datetime import datetime as _dt
+        vl = QVBoxLayout(self)
+        vl.setSpacing(12)
+        vl.setContentsMargins(20, 20, 20, 16)
+
+        titel = QLabel("📊 Verspätungs-Protokoll als Excel exportieren")
+        titel.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        titel.setStyleSheet("color:#1565a8;")
+        vl.addWidget(titel)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # Datum von
+        from PySide6.QtCore import QDate
+        self._de_von = QDateEdit()
+        self._de_von.setCalendarPopup(True)
+        self._de_von.setDisplayFormat("dd.MM.yyyy")
+        self._de_von.setDate(QDate(self._von.year, self._von.month, self._von.day))
+        self._de_von.setFixedWidth(140)
+        form.addRow("Datum von:", self._de_von)
+
+        self._de_bis = QDateEdit()
+        self._de_bis.setCalendarPopup(True)
+        self._de_bis.setDisplayFormat("dd.MM.yyyy")
+        self._de_bis.setDate(QDate(self._bis.year, self._bis.month, self._bis.day))
+        self._de_bis.setFixedWidth(140)
+        form.addRow("Datum bis:", self._de_bis)
+
+        # Schnellauswahl-Buttons
+        schnell_row = QHBoxLayout()
+        for label, monate in [("Aktueller Monat", 0), ("Letzter Monat", -1), ("Letztes Quartal", -3)]:
+            btn = _btn_light(label)
+            btn.setFixedHeight(26)
+            btn.clicked.connect(lambda checked, m=monate: self._schnell_setzen(m))
+            schnell_row.addWidget(btn)
+        schnell_row.addStretch()
+        form.addRow("Schnellauswahl:", schnell_row)
+
+        # Speicherpfad
+        pfad_row = QHBoxLayout()
+        self._pfad_edit = QLineEdit()
+        heute = _dt.today()
+        std_name = f"Verspaetungen_{heute.strftime('%Y-%m')}.xlsx"
+        self._pfad_edit.setText(os.path.join(_EXCEL_STANDARD_DIR, std_name))
+        pfad_row.addWidget(self._pfad_edit, 1)
+        btn_browse = _btn_light("📂 …")
+        btn_browse.setFixedWidth(40)
+        btn_browse.clicked.connect(self._pfad_auswaehlen)
+        pfad_row.addWidget(btn_browse)
+        form.addRow("Speicherpfad:", pfad_row)
+
+        vl.addLayout(form)
+
+        # Trennlinie
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet("color:#ddd;")
+        vl.addWidget(line)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        ok_btn = _btn("📊  Exportieren", "#1d6f42", "#155230")
+        ok_btn.clicked.connect(self._accept)
+        abbruch_btn = _btn_light("Abbrechen")
+        abbruch_btn.clicked.connect(self.reject)
+        btn_row.addWidget(ok_btn)
+        btn_row.addWidget(abbruch_btn)
+        vl.addLayout(btn_row)
+
+    def _schnell_setzen(self, monate_offset: int):
+        """Setzt den Datumsbereich auf aktuellen (0) oder vergangene Monate (-n)."""
+        from datetime import datetime as _dt
+        from PySide6.QtCore import QDate
+        heute = _dt.today()
+        # Zielmonat berechnen
+        monat = heute.month + monate_offset
+        jahr  = heute.year
+        while monat < 1:
+            monat += 12
+            jahr  -= 1
+        while monat > 12:
+            monat -= 12
+            jahr  += 1
+        import calendar
+        letzter_tag = calendar.monthrange(jahr, monat)[1]
+        if monate_offset == 0:
+            # Aktueller Monat: 1. bis heute
+            von = _dt(jahr, monat, 1)
+            bis = heute
+            # Dateiname anpassen
+            std_name = f"Verspaetungen_{heute.strftime('%Y-%m')}.xlsx"
+        elif monate_offset == -1:
+            von = _dt(jahr, monat, 1)
+            bis = _dt(jahr, monat, letzter_tag)
+            std_name = f"Verspaetungen_{jahr}-{monat:02d}.xlsx"
+        else:
+            # Quartal: zurück n Monate
+            von = _dt(jahr, monat, 1)
+            bis = heute
+            std_name = f"Verspaetungen_{von.strftime('%Y-%m')}_bis_{heute.strftime('%Y-%m')}.xlsx"
+        self._de_von.setDate(QDate(von.year, von.month, von.day))
+        self._de_bis.setDate(QDate(bis.year, bis.month, bis.day))
+        # Pfad-Name aktualisieren (nur Dateiname, Verzeichnis bleibt)
+        aktueller_pfad = self._pfad_edit.text()
+        verzeichnis = os.path.dirname(aktueller_pfad) if aktueller_pfad else _EXCEL_STANDARD_DIR
+        self._pfad_edit.setText(os.path.join(verzeichnis, std_name))
+
+    def _pfad_auswaehlen(self):
+        from PySide6.QtWidgets import QFileDialog
+        pfad, _ = QFileDialog.getSaveFileName(
+            self, "Excel speichern unter",
+            self._pfad_edit.text() or _EXCEL_STANDARD_DIR,
+            "Excel-Datei (*.xlsx)",
+        )
+        if pfad:
+            self._pfad_edit.setText(pfad)
+
+    def _accept(self):
+        from datetime import datetime as _dt
+        von_q = self._de_von.date()
+        bis_q = self._de_bis.date()
+        self._von  = _dt(von_q.year(), von_q.month(), von_q.day())
+        self._bis  = _dt(bis_q.year(), bis_q.month(), bis_q.day(), 23, 59, 59)
+        self._pfad = self._pfad_edit.text().strip()
+        if not self._pfad:
+            QMessageBox.warning(self, "Kein Pfad", "Bitte einen Speicherpfad angeben.")
+            return
+        if not self._pfad.lower().endswith(".xlsx"):
+            self._pfad += ".xlsx"
+            self._pfad_edit.setText(self._pfad)
+        if self._von > self._bis:
+            QMessageBox.warning(self, "Ungültiger Zeitraum", "Das Von-Datum darf nicht nach dem Bis-Datum liegen.")
+            return
+        self.accept()
+
+    def get_werte(self):
+        """Gibt (datum_von, datum_bis, pfad) zurück."""
+        return self._von, self._bis, self._pfad
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  Haupt-Widget
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1758,6 +2024,11 @@ class MitarbeiterDokumenteWidget(QWidget):
         self._versp_btn_ordner.clicked.connect(self._verspaetung_ordner_oeffnen)
         vbtn_row.addWidget(self._versp_btn_ordner)
 
+        self._versp_btn_excel = _btn("📊  Excel-Export", "#1d6f42", "#155230")
+        self._versp_btn_excel.setToolTip("Verspätungs-Liste als Excel-Datei exportieren (Datumsbereich wählbar)")
+        self._versp_btn_excel.clicked.connect(self._verspaetung_excel_export)
+        vbtn_row.addWidget(self._versp_btn_excel)
+
         self._versp_btn_loeschen = _btn_light("🗑  Löschen")
         self._versp_btn_loeschen.setEnabled(False)
         self._versp_btn_loeschen.setToolTip("Eintrag aus Protokoll löschen (Dokument bleibt erhalten)")
@@ -2245,6 +2516,51 @@ class MitarbeiterDokumenteWidget(QWidget):
             os.startfile(ordner)
         except Exception as exc:
             QMessageBox.warning(self, "Fehler", f"Ordner konnte nicht geöffnet werden:\n{exc}")
+
+    def _verspaetung_excel_export(self):
+        """Öffnet den Export-Dialog, lässt den Nutzer einen Datumsbereich wählen und speichert Excel."""
+        from datetime import datetime as _dt
+        dlg = _VerspaetungExportDialog(parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        datum_von, datum_bis, speicherpfad = dlg.get_werte()
+
+        try:
+            eintraege = lade_verspaetungen()
+        except Exception as exc:
+            QMessageBox.critical(self, "Datenbankfehler", str(exc))
+            return
+
+        # Filter nach Datumsbereich
+        def _parse(d):
+            try:
+                return _dt.strptime(d, "%d.%m.%Y")
+            except ValueError:
+                return None
+
+        gefiltert = [
+            e for e in eintraege
+            if (p := _parse(e.get("datum", ""))) is not None
+            and datum_von <= p <= datum_bis
+        ]
+        gefiltert.sort(key=lambda e: _parse(e.get("datum", "")) or _dt.min, reverse=True)
+
+        try:
+            _verspaetungen_als_excel_speichern(gefiltert, speicherpfad)
+        except Exception as exc:
+            QMessageBox.critical(self, "Excel-Export fehlgeschlagen", str(exc))
+            return
+
+        antwort = QMessageBox.question(
+            self, "Excel-Export erfolgreich",
+            f"✅ {len(gefiltert)} Einträge wurden exportiert:\n\n📄 {speicherpfad}\n\nDatei jetzt öffnen?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if antwort == QMessageBox.StandardButton.Yes:
+            try:
+                os.startfile(speicherpfad)
+            except Exception as exc:
+                QMessageBox.warning(self, "Öffnen fehlgeschlagen", str(exc))
 
     def _verspaetung_mail_senden(self):
         """Outlook-Entwurf mit dem Verspätungsdokument als Anhang erstellen."""
