@@ -222,6 +222,7 @@ class SidebarButton(QPushButton):
         self._apply_style(False)
 
     def _apply_style(self, active: bool):
+        _tt = "QToolTip { color: #1b3a5c; background-color: #fffde7; border: 1px solid #90a4ae; padding: 4px 8px; }"
         if active:
             self.setStyleSheet(f"""
                 QPushButton {{
@@ -233,6 +234,7 @@ class SidebarButton(QPushButton):
                     text-align: left;
                     font-weight: bold;
                 }}
+                {_tt}
             """)
         else:
             self.setStyleSheet(f"""
@@ -248,6 +250,7 @@ class SidebarButton(QPushButton):
                     background-color: rgba(255,255,255,25);
                     color: white;
                 }}
+                {_tt}
             """)
 
     def setActive(self, active: bool):
@@ -364,6 +367,7 @@ class MainWindow(QMainWindow):
                 background-color: rgba(255,255,255,51);
                 color: white;
             }
+            QToolTip { color: #1b3a5c; background-color: #fffde7; border: 1px solid #90a4ae; padding: 4px 8px; }
         """)
         self._hilfe_btn.clicked.connect(lambda: HilfeDialog(self).exec())
         layout.addWidget(self._hilfe_btn)

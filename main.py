@@ -25,7 +25,7 @@ import glob
 import threading
 import time
 from datetime import datetime
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QToolTip
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QPalette, QColor, QIcon
 from gui.main_window import MainWindow
@@ -269,8 +269,15 @@ def main():
             border-radius: 4px;
             font-size: 9.5pt;
             padding: 5px 10px;
+            opacity: 255;
         }
     """)
+
+    # Tooltip-Palette explizit setzen (belt-and-suspenders gegen Qt-Windows-Bug)
+    _tt_pal = QPalette()
+    _tt_pal.setColor(QPalette.ColorRole.ToolTipBase, QColor("#fffde7"))
+    _tt_pal.setColor(QPalette.ColorRole.ToolTipText, QColor("#1b3a5c"))
+    QToolTip.setPalette(_tt_pal)
 
     # App-Icon setzen
     _icon_path = os.path.join(BASE_DIR, "Daten", "Logo", "nesk3.ico")
