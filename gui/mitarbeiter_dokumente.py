@@ -1694,6 +1694,13 @@ class MitarbeiterDokumenteWidget(QWidget):
         btn_reset.clicked.connect(self._versp_filter_reset)
         fl.addWidget(btn_reset)
 
+        self._versp_sort_desc = True
+        self._versp_btn_sort = _btn_light("▼ Neueste zuerst")
+        self._versp_btn_sort.setFixedHeight(28)
+        self._versp_btn_sort.setToolTip("Sortierreihenfolge umschalten: Neueste ↕ Älteste zuerst")
+        self._versp_btn_sort.clicked.connect(self._versp_sort_umschalten)
+        fl.addWidget(self._versp_btn_sort)
+
         layout.addWidget(filter_frame)
 
         # ── Ergebnis-Tabelle ──────────────────────────────────────────────────
@@ -2053,6 +2060,15 @@ class MitarbeiterDokumenteWidget(QWidget):
     def _versp_filter_changed(self):
         self._versp_lade()
 
+    def _versp_sort_umschalten(self):
+        """Sortierreihenfolge (neueste ↕ älteste zuerst) umschalten."""
+        self._versp_sort_desc = not self._versp_sort_desc
+        if self._versp_sort_desc:
+            self._versp_btn_sort.setText("▼ Neueste zuerst")
+        else:
+            self._versp_btn_sort.setText("▲ Älteste zuerst")
+        self._versp_lade()
+
     def _versp_lade(self):
         """Verspätungs-DB abfragen und Tabelle befüllen."""
         jahr   = self._versp_combo_jahr.currentData()
@@ -2063,6 +2079,17 @@ class MitarbeiterDokumenteWidget(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "Datenbankfehler", str(exc))
             return
+
+        # Datum-Sortierung (DD.MM.YYYY)
+        def _datum_key(e):
+            try:
+                from datetime import datetime as _dt
+                return _dt.strptime(e.get("datum", "01.01.1900"), "%d.%m.%Y")
+            except ValueError:
+                from datetime import datetime as _dt
+                return _dt.min
+        eintraege.sort(key=_datum_key, reverse=self._versp_sort_desc)
+
         self._versp_eintraege = eintraege
         self._versp_table.setRowCount(len(eintraege))
         for row, e in enumerate(eintraege):
