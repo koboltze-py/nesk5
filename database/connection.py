@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS mitarbeiter (
     vorname         TEXT NOT NULL,
     nachname        TEXT NOT NULL,
     personalnummer  TEXT DEFAULT '',
-    funktion        TEXT DEFAULT 'stamm' CHECK (funktion IN ('stamm','dispo')),
+    funktion        TEXT DEFAULT 'Schichtleiter' CHECK (funktion IN ('Schichtleiter','Dispo','Betreuer','stamm','dispo')),
     position        TEXT DEFAULT '',
     abteilung       TEXT DEFAULT '',
     email           TEXT DEFAULT '',
@@ -129,6 +129,47 @@ def init_mitarbeiter_db() -> None:
     conn = get_ma_connection()
     conn.executescript(_MA_SCHEMA)
     conn.commit()
+    # Migration: CHECK-Constraint für funktion erweitern (SQLite: Tabelle neu erstellen)
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(mitarbeiter)").fetchall()]
+        if cols:
+            tbl_sql = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='mitarbeiter'"
+            ).fetchone()
+            if tbl_sql and "funktion IN ('stamm','dispo')" in (tbl_sql.get('sql') or tbl_sql[0] if isinstance(tbl_sql, tuple) else ''):
+                conn.executescript("""
+                    PRAGMA foreign_keys = OFF;
+                    BEGIN;
+                    CREATE TABLE IF NOT EXISTS mitarbeiter_new (
+                        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                        vorname         TEXT NOT NULL,
+                        nachname        TEXT NOT NULL,
+                        personalnummer  TEXT DEFAULT '',
+                        funktion        TEXT DEFAULT 'Schichtleiter'
+                                        CHECK (funktion IN ('Schichtleiter','Dispo','Betreuer','stamm','dispo')),
+                        position        TEXT DEFAULT '',
+                        abteilung       TEXT DEFAULT '',
+                        email           TEXT DEFAULT '',
+                        telefon         TEXT DEFAULT '',
+                        eintrittsdatum  TEXT,
+                        status          TEXT DEFAULT 'aktiv',
+                        erstellt_am     TEXT DEFAULT (datetime('now','localtime')),
+                        geaendert_am    TEXT DEFAULT (datetime('now','localtime'))
+                    );
+                    INSERT INTO mitarbeiter_new SELECT id,vorname,nachname,
+                        COALESCE(personalnummer,''),
+                        CASE funktion WHEN 'stamm' THEN 'Schichtleiter' WHEN 'dispo' THEN 'Dispo' ELSE funktion END,
+                        COALESCE(position,''),COALESCE(abteilung,''),
+                        COALESCE(email,''),COALESCE(telefon,''),
+                        eintrittsdatum,COALESCE(status,'aktiv'),
+                        erstellt_am,geaendert_am FROM mitarbeiter;
+                    DROP TABLE mitarbeiter;
+                    ALTER TABLE mitarbeiter_new RENAME TO mitarbeiter;
+                    COMMIT;
+                    PRAGMA foreign_keys = ON;
+                """)
+    except Exception:
+        pass
     conn.close()
 
 

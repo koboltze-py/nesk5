@@ -406,7 +406,7 @@ class NeuerMitarbeiterDialog(QDialog):
 
         self._personalnr  = QLineEdit(); self._personalnr.setPlaceholderText("Optional")
         self._funktion    = QComboBox()
-        self._funktion.addItems(["stamm", "dispo"])
+        self._funktion.addItems(["Schichtleiter", "Dispo", "Betreuer"])
         self._position    = QComboBox()
         self._position.setEditable(True)
         pos = lade_positionen_ma_db()
