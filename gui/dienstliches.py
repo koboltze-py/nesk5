@@ -2627,6 +2627,14 @@ class _PatientenTab(QWidget):
         btn_reset.setFixedHeight(28)
         btn_reset.clicked.connect(self._filter_reset)
         fl.addWidget(btn_reset)
+
+        self._sort_desc = True
+        self._btn_sort = _btn_light("▼ Neueste zuerst")
+        self._btn_sort.setFixedHeight(28)
+        self._btn_sort.setToolTip("Sortierreihenfolge umschalten: Neueste ↕ Älteste zuerst")
+        self._btn_sort.clicked.connect(self._sort_umschalten)
+        fl.addWidget(self._btn_sort)
+
         layout.addWidget(filter_frame)
 
         # ── Aktions-Buttons ────────────────────────────────────────────────
@@ -2755,6 +2763,15 @@ class _PatientenTab(QWidget):
     def _filter_changed(self):
         self._lade()
 
+    def _sort_umschalten(self):
+        """Sortierreihenfolge (neueste ↕ älteste zuerst) umschalten."""
+        self._sort_desc = not self._sort_desc
+        if self._sort_desc:
+            self._btn_sort.setText("▼ Neueste zuerst")
+        else:
+            self._btn_sort.setText("▲ Älteste zuerst")
+        self._lade()
+
     def _lade(self):
         jahr  = self._combo_jahr.currentData()
         monat = self._combo_monat.currentData()
@@ -2764,6 +2781,20 @@ class _PatientenTab(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "Datenbankfehler", str(exc))
             return
+
+        def _datum_key(e):
+            try:
+                from datetime import datetime as _dt
+                return _dt.strptime(
+                    (e.get("datum", "01.01.1900") or "01.01.1900") + " " +
+                    (e.get("uhrzeit", "00:00") or "00:00"),
+                    "%d.%m.%Y %H:%M"
+                )
+            except ValueError:
+                from datetime import datetime as _dt
+                return _dt.min
+        eintraege.sort(key=_datum_key, reverse=self._sort_desc)
+
         self._eintraege = eintraege
         self._table.setRowCount(len(eintraege))
         for row, p in enumerate(eintraege):
@@ -3136,6 +3167,13 @@ class _EinsaetzeTab(QWidget):
         btn_reset.clicked.connect(self._filter_reset)
         fl.addWidget(btn_reset)
 
+        self._sort_desc = True
+        self._btn_sort = _btn_light("▼ Neueste zuerst")
+        self._btn_sort.setFixedHeight(28)
+        self._btn_sort.setToolTip("Sortierreihenfolge umschalten: Neueste ↕ Älteste zuerst")
+        self._btn_sort.clicked.connect(self._sort_umschalten)
+        fl.addWidget(self._btn_sort)
+
         layout.addWidget(filter_frame)
 
         # ── Aktions-Buttons ────────────────────────────────────────────────
@@ -3266,6 +3304,15 @@ class _EinsaetzeTab(QWidget):
     def _filter_changed(self):
         self._lade()
 
+    def _sort_umschalten(self):
+        """Sortierreihenfolge (neueste ↕ älteste zuerst) umschalten."""
+        self._sort_desc = not self._sort_desc
+        if self._sort_desc:
+            self._btn_sort.setText("▼ Neueste zuerst")
+        else:
+            self._btn_sort.setText("▲ Älteste zuerst")
+        self._lade()
+
     def _lade(self):
         jahr   = self._combo_jahr.currentData()
         monat  = self._combo_monat.currentData()
@@ -3275,6 +3322,19 @@ class _EinsaetzeTab(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "Datenbankfehler", str(exc))
             return
+
+        def _datum_key(e):
+            try:
+                from datetime import datetime as _dt
+                return _dt.strptime(
+                    (e.get("datum", "01.01.1900") or "01.01.1900") + " " +
+                    (e.get("uhrzeit", "00:00") or "00:00"),
+                    "%d.%m.%Y %H:%M"
+                )
+            except ValueError:
+                from datetime import datetime as _dt
+                return _dt.min
+        eintraege.sort(key=_datum_key, reverse=self._sort_desc)
 
         self._eintraege = eintraege
         lfd_nr = 1
