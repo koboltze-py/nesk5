@@ -1463,6 +1463,8 @@ class _MitarbeiterListeWidget(QWidget):
         self._tbl.verticalHeader().setVisible(False)
         self._tbl.setStyleSheet("font-size:12px;")
         self._tbl.doubleClicked.connect(lambda idx: self._zeige_detail(idx.row()))
+        self._tbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._tbl.customContextMenuRequested.connect(self._kontext_menu)
         v.addWidget(self._tbl, 1)
 
         hint = QLabel("💡 Doppelklick auf einen Mitarbeiter → alle 14 Schulungstypen anzeigen")
@@ -1711,6 +1713,46 @@ class _MitarbeiterListeWidget(QWidget):
         self._suche.clear()
         self._filter_status.setCurrentIndex(0)
         self._filter_typ.setCurrentIndex(0)
+
+    def _kontext_menu(self, pos):
+        row = self._tbl.rowAt(pos.y())
+        if row < 0:
+            return
+        item = self._tbl.item(row, 0)
+        if not item:
+            return
+        ma = item.data(Qt.ItemDataRole.UserRole)
+        if not ma:
+            return
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self._tbl)
+        akt_detail = menu.addAction("🎓  Schulungen anzeigen")
+        menu.addSeparator()
+        akt_loeschen = menu.addAction("🗑️  Mitarbeiter löschen")
+        akt_loeschen.setObjectName("loeschen")
+        aktion = menu.exec(self._tbl.viewport().mapToGlobal(pos))
+        if aktion is akt_detail:
+            self._zeige_detail(row)
+        elif aktion is akt_loeschen:
+            self._loesche_mitarbeiter(ma)
+
+    def _loesche_mitarbeiter(self, ma: dict):
+        name = f"{ma.get('nachname', '')}, {ma.get('vorname', '')}".strip(", ")
+        antwort = QMessageBox.question(
+            self, "Mitarbeiter löschen",
+            f"Soll <b>{name}</b> wirklich gelöscht werden?<br>"
+            "Alle Schulungseinträge dieses Mitarbeiters werden ebenfalls entfernt.<br><br>"
+            "Diese Aktion kann nicht rückgängig gemacht werden.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if antwort != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            from functions.schulungen_db import loesche_mitarbeiter
+            loesche_mitarbeiter(ma["id"])
+            self.aktualisieren()
+        except Exception as exc:
+            QMessageBox.critical(self, "Fehler beim Löschen", str(exc))
 
 
 # ─── Haupt-Widget ─────────────────────────────────────────────────────────────

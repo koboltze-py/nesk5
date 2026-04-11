@@ -309,6 +309,15 @@ def loesche_schulungseintrag(eintrag_id: int) -> None:
         conn.commit()
 
 
+def loesche_mitarbeiter(ma_id: int) -> None:
+    """Löscht einen Mitarbeiter und alle seine Schulungseinträge."""
+    _init_db()
+    with _connect() as conn:
+        conn.execute("DELETE FROM schulungseintraege WHERE mitarbeiter_id=?", (ma_id,))
+        conn.execute("DELETE FROM mitarbeiter WHERE id=?", (ma_id,))
+        conn.commit()
+
+
 def lade_schulungseintraege(ma_id: int) -> list[dict]:
     _init_db()
     with _connect() as conn:
