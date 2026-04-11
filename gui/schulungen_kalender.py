@@ -499,7 +499,11 @@ class NeuerMitarbeiterDialog(QDialog):
         """Gibt Schulungseinträge-Rohdaten zurück (gueltig_bis als String)."""
         from functions.schulungen_db import _berechne_gueltig_bis, _datum_str
         from datetime import date as _date
-        def _d(w): return w.date() if w.date() != QDate(2000, 1, 1) else None
+        def _d(w):
+            if w is None:
+                return None
+            d = w.date()
+            return d if d != QDate(2000, 1, 1) else None
         def _ds(qd): return _date(qd.year(), qd.month(), qd.day()) if qd else None
 
         eintraege = {}
@@ -1973,11 +1977,11 @@ class SchulungenKalenderWidget(QWidget):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
 
-        stamm  = dlg.get_stamm_daten()
-        schul  = dlg.get_schulungs_daten()
-        ma_dat = dlg.get_ma_db_daten()
-
         try:
+            stamm  = dlg.get_stamm_daten()
+            schul  = dlg.get_schulungs_daten()
+            ma_dat = dlg.get_ma_db_daten()
+
             # 1. Mitarbeiter-Stamm in schulungen.db
             ma_id = speichere_mitarbeiter(stamm)
 
