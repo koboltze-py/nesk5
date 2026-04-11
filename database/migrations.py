@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS mitarbeiter (
     nachname        TEXT NOT NULL,
     personalnummer  TEXT UNIQUE,
     funktion        TEXT DEFAULT 'Schichtleiter'
-                    CHECK (funktion IN ('Schichtleiter','Dispo','Betreuer','stamm','dispo')),
+                    CHECK (funktion IN ('Schichtleiter','Dispo','Betreuer')),
     position        TEXT DEFAULT '',
     abteilung       TEXT DEFAULT '',
     email           TEXT DEFAULT '',
