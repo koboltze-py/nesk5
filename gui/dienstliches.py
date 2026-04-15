@@ -788,9 +788,9 @@ def export_einsaetze_excel(
     import re as _re_ein; from datetime import date as _excel_d_ein
     def _d_ein(s):
         if not s: return s
-        m = _re_ein.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$", str(s).strip())
+        m = _re_ein.match(r"^(\d{4})-(\d{2})-(\d{2})$", str(s).strip())
         if m:
-            try: return _excel_d_ein(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            try: return _excel_d_ein(int(m.group(1)), int(m.group(2)), int(m.group(3)))
             except ValueError: pass
         return s
 
@@ -943,9 +943,9 @@ def export_patienten_excel(
     import re as _re_pat; from datetime import date as _excel_d_pat
     def _d_pat(s):
         if not s: return s
-        m = _re_pat.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$", str(s).strip())
+        m = _re_pat.match(r"^(\d{4})-(\d{2})-(\d{2})$", str(s).strip())
         if m:
-            try: return _excel_d_pat(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            try: return _excel_d_pat(int(m.group(1)), int(m.group(2)), int(m.group(3)))
             except ValueError: pass
         return s
 

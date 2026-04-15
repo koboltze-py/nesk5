@@ -1257,6 +1257,16 @@ def _verspaetungen_als_excel_speichern(eintraege: list[dict], pfad: str) -> None
 
     ws.row_dimensions[1].height = 22
 
+    # ── Datum-Parser für echte Excel-Datumswerte (sortierbar) ──────────────────
+    import re as _re_versp; from datetime import date as _excel_d
+    def _d(s):
+        if not s: return s
+        mv = _re_versp.match(r"^(\d{4})-(\d{2})-(\d{2})$", str(s).strip())
+        if mv:
+            try: return _excel_d(int(mv.group(1)), int(mv.group(2)), int(mv.group(3)))
+            except ValueError: pass
+        return s
+
     # ── Datenzeilen ──────────────────────────────────────────────────────────
     fill_gelb  = PatternFill("solid", fgColor="FFF3CD")
     fill_gruen = PatternFill("solid", fgColor="D4EDDA")
