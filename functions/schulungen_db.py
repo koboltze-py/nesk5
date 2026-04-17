@@ -41,6 +41,7 @@ SCHULUNGSTYPEN_CFG = {
     "Personalausweis":        {"anzeige": "Personalausweis/Pass",  "ablauf": "einmalig",  "intervall": None, "laeuft_nicht_ab": True},
     "Sicherheitsschulung":    {"anzeige": "Sicherheitsschulung",   "ablauf": "intervall", "intervall": 5,    "laeuft_nicht_ab": False},
     "Vorfeldschulung":         {"anzeige": "Vorfeldschulung",        "ablauf": "direkt",    "intervall": None, "laeuft_nicht_ab": False},
+    "PRM_Schulung":           {"anzeige": "PRM-Schulung",           "ablauf": "direkt",    "intervall": None, "laeuft_nicht_ab": False},
     "Sonstiges":              {"anzeige": "Sonstiges",              "ablauf": "direkt",    "intervall": None, "laeuft_nicht_ab": False},
 }
 
@@ -902,3 +903,238 @@ def erstimport_wenn_leer() -> "tuple[int, int] | None":
         return excel_importieren(pfad)
     except Exception:
         return None
+
+
+# ─── PRM-Schulung Import ──────────────────────────────────────────────────────
+
+_PRM_EXCEL_PFAD = Path(_BASE_DIR) / "Daten" / "PRM Schulung" / "zertifikate_aktuell.xlsx"
+
+
+def prm_schulung_importieren(pfad: str | None = None) -> dict:
+    """
+    Importiert PRM-Schulungen aus zertifikate_aktuell.xlsx.
+    Spalten: Name (D/Index 3), Nachgewiesen am (F/Index 5), Gültig bis (G/Index 6).
+
+    Namens-Abgleich (mehrstufig):
+      1. Exakt (normalisiert)
+      2. Nachname exakt + Vorname-Wortüberlappung
+      3. Nachname-Teil in zusammengesetztem Excel-Nachnamen + Vorname-Overlap
+      4. Fuzzy Nachname (Einschluss) + Vorname-Overlap
+      → Kein Treffer: neuen Mitarbeiter anlegen
+
+    Rückgabe-Dict:
+      importiert   – Anzahl verarbeiteter Excel-Zeilen
+      neu_angelegt – Anzahl neu erzeugter Mitarbeiter
+      kein_match   – Liste der Excel-Namen ohne Treffer (neu angelegt)
+      details      – Liste pro Zeile {excel_name, ma_id, grund, aktion, datum_absolviert, gueltig_bis}
+    """
+    try:
+        import openpyxl
+    except ImportError:
+        raise ImportError("openpyxl nicht installiert – bitte: pip install openpyxl")
+
+    import unicodedata as _ud
+    import shutil as _shutil
+    import tempfile as _tempfile
+
+    pfad = pfad or str(_PRM_EXCEL_PFAD)
+
+    # Datei temporär kopieren (verhindert OneDrive-Sperren)
+    tmp = _tempfile.mktemp(suffix=".xlsx")
+    _shutil.copy2(pfad, tmp)
+    try:
+        wb = openpyxl.load_workbook(tmp, data_only=True)
+    finally:
+        try:
+            import os as _os; _os.unlink(tmp)
+        except Exception:
+            pass
+
+    ws = wb.active
+
+    # ── Hilfsfunktionen ───────────────────────────────────────────────────────
+    def _norm(s: str) -> str:
+        """Lowercase + Unicode-Normalisierung (Diakritika entfernen)."""
+        s = _ud.normalize("NFKD", s.lower())
+        return "".join(c for c in s if not _ud.combining(c))
+
+    def _is_upper_word(w: str) -> bool:
+        """True wenn das Wort komplett in Großbuchstaben steht (ß=SS)."""
+        chk = w.replace("ß", "SS").replace("-", "").replace("'", "").replace(".", "")
+        return len(chk) > 1 and chk == chk.upper()
+
+    def _parse_name(raw: str):
+        """Trennt Excel-Name in (vorname, nachname).
+        Schema: Vorname(n) NACHNAME – letztes Uppercase-Wortblock = Nachname.
+        Sonderfälle: alles uppercase → letztes Wort = Nachname.
+        """
+        parts = raw.strip().split()
+        if not parts:
+            return "", ""
+        # Von rechts: solange uppercase → Nachname
+        i = len(parts) - 1
+        nn_start = len(parts)
+        while i >= 0 and _is_upper_word(parts[i]):
+            nn_start = i
+            i -= 1
+        if nn_start == 0:
+            # Alle Wörter uppercase → nur letztes Wort ist Nachname
+            return " ".join(parts[:-1]), parts[-1]
+        if nn_start == len(parts):
+            # Kein Wort komplett uppercase → letztes Wort als Nachname
+            return " ".join(parts[:-1]), parts[-1]
+        return " ".join(parts[:nn_start]), " ".join(parts[nn_start:])
+
+    def _wort_menge(s: str) -> set:
+        """Alle Einzelwörter inkl. Bindestrich-Teile (normalisiert)."""
+        result = set()
+        for w in s.split():
+            n = _norm(w)
+            result.add(n)
+            for sub in n.split("-"):
+                if sub:
+                    result.add(sub)
+        return result
+
+    # ── Mitarbeiter aus DB laden ──────────────────────────────────────────────
+    _init_db()
+    with _connect() as _c:
+        _rows = _c.execute(
+            "SELECT id, nachname, vorname FROM mitarbeiter WHERE aktiv=1"
+        ).fetchall()
+    # Liste: (id, nn_norm, vn_norm, nn_orig, vn_orig)
+    ma_liste: list[tuple] = [
+        (r[0], _norm(r[1]), _norm(r[2]), r[1], r[2])
+        for r in _rows
+    ]
+
+    def _match_ma(vn_ex: str, nn_ex: str):
+        """Gibt (ma_id, grund) zurück oder (None, grund_str) wenn kein Treffer."""
+        nn_n = _norm(nn_ex)
+        nn_ex_teile = {_norm(p) for p in nn_ex.split()}
+        ex_vn_wmenge = _wort_menge(vn_ex)
+
+        # 1. Exakt
+        for ma_id, ma_nn_n, ma_vn_n, _, _ in ma_liste:
+            if ma_nn_n == nn_n and ma_vn_n == _norm(vn_ex):
+                return ma_id, "exakt"
+
+        # 2. Nachname exakt + Vorname-Wortüberlappung
+        treffer = []
+        for ma_id, ma_nn_n, ma_vn_n, _, _ in ma_liste:
+            if ma_nn_n == nn_n and _wort_menge(ma_vn_n) & ex_vn_wmenge:
+                treffer.append((ma_id, "vorname-überlappung"))
+        if len(treffer) == 1:
+            return treffer[0]
+        if len(treffer) > 1:
+            return None, f"mehrdeutig({len(treffer)})"
+
+        # 3. DB-Nachname ist Teil des Excel-Nachnamens + Vorname-Overlap
+        treffer = []
+        for ma_id, ma_nn_n, ma_vn_n, _, _ in ma_liste:
+            if ma_nn_n in nn_ex_teile and _wort_menge(ma_vn_n) & ex_vn_wmenge:
+                treffer.append((ma_id, "nachname-teil"))
+        if len(treffer) == 1:
+            return treffer[0]
+
+        # 4. Fuzzy Nachname (Einschluss) + Vorname-Overlap
+        treffer = []
+        for ma_id, ma_nn_n, ma_vn_n, _, _ in ma_liste:
+            nn_fuzzy = (
+                nn_n in ma_nn_n
+                or ma_nn_n in nn_n
+                or nn_n.replace("-", "") == ma_nn_n.replace("-", "")
+            )
+            if nn_fuzzy and _wort_menge(ma_vn_n) & ex_vn_wmenge:
+                treffer.append((ma_id, "fuzzy"))
+        if len(treffer) == 1:
+            return treffer[0]
+        if len(treffer) > 1:
+            return None, f"fuzzy-mehrdeutig({len(treffer)})"
+
+        return None, "kein_match"
+
+    # ── Haupt-Importschleife ──────────────────────────────────────────────────
+    now = datetime.now().isoformat(timespec="seconds")
+    typ_key = "PRM_Schulung"
+    cfg = SCHULUNGSTYPEN_CFG[typ_key]
+    laeuft_nicht_ab = int(cfg.get("laeuft_nicht_ab", False))
+
+    importiert = 0
+    neu_angelegt = 0
+    kein_match: list[str] = []
+    details: list[dict] = []
+
+    with _connect() as conn:
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            name_raw = row[3]
+            if not name_raw or not str(name_raw).strip():
+                continue
+            name_raw = str(name_raw).strip()
+
+            datum_absolviert_d = _parse_datum(row[5])   # Nachgewiesen am
+            gueltig_bis_d      = _parse_datum(row[6])   # Gültig bis
+
+            dat_str = _datum_str(datum_absolviert_d)
+            gb_str  = _datum_str(gueltig_bis_d)
+            status  = _berechne_status(gueltig_bis_d, bool(laeuft_nicht_ab))
+
+            vn_ex, nn_ex = _parse_name(name_raw)
+            ma_id, grund = _match_ma(vn_ex, nn_ex)
+
+            if ma_id is None:
+                # Neuen Mitarbeiter anlegen
+                nn_neu = nn_ex.title() if nn_ex else name_raw.strip().split()[-1].title()
+                vn_neu = vn_ex.title() if vn_ex else " ".join(name_raw.strip().split()[:-1]).title()
+                cur = conn.execute(
+                    "INSERT INTO mitarbeiter (nachname, vorname, qualifikation, aktiv, erstellt_am)"
+                    " VALUES (?,?,?,1,?)",
+                    (nn_neu, vn_neu, "PRM", now),
+                )
+                ma_id = cur.lastrowid
+                # Sofort in ma_liste aufnehmen (vermeidet Duplikate bei mehrfachem Vorkommen)
+                ma_liste.append((ma_id, _norm(nn_neu), _norm(vn_neu), nn_neu, vn_neu))
+                neu_angelegt += 1
+                kein_match.append(name_raw)
+                grund = "neu_angelegt"
+
+            # Vorhandenen PRM-Eintrag aktualisieren oder neu anlegen
+            ex_e = conn.execute(
+                "SELECT id FROM schulungseintraege WHERE mitarbeiter_id=? AND schulungstyp=?",
+                (ma_id, typ_key),
+            ).fetchone()
+            if ex_e:
+                conn.execute(
+                    """UPDATE schulungseintraege SET
+                       datum_absolviert=?, gueltig_bis=?, laeuft_nicht_ab=?,
+                       status=?, zuletzt_akt=? WHERE id=?""",
+                    (dat_str, gb_str, laeuft_nicht_ab, status, now, ex_e[0]),
+                )
+                aktion = "aktualisiert"
+            else:
+                conn.execute(
+                    """INSERT INTO schulungseintraege
+                       (mitarbeiter_id, schulungstyp, datum_absolviert, gueltig_bis,
+                        laeuft_nicht_ab, status, bemerkung, zuletzt_akt)
+                       VALUES (?,?,?,?,?,?,?,?)""",
+                    (ma_id, typ_key, dat_str, gb_str, laeuft_nicht_ab, status, "", now),
+                )
+                aktion = "neu"
+
+            importiert += 1
+            details.append({
+                "excel_name":        name_raw,
+                "ma_id":             ma_id,
+                "grund":             grund,
+                "aktion":            aktion,
+                "datum_absolviert":  dat_str,
+                "gueltig_bis":       gb_str,
+            })
+        conn.commit()
+
+    return {
+        "importiert":   importiert,
+        "neu_angelegt": neu_angelegt,
+        "kein_match":   kein_match,
+        "details":      details,
+    }

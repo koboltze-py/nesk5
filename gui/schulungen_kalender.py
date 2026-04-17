@@ -1434,6 +1434,7 @@ class _MitarbeiterListeWidget(QWidget):
         ("ZÜP",                "ZÜP"),
         ("Aerztl_Untersuchung","Ärztl."),
         ("Sicherheitsschulung","Sich.Sch."),
+        ("PRM_Schulung",       "PRM-Sch."),
     ]
 
     _FARB_MAP = {
@@ -1499,6 +1500,11 @@ class _MitarbeiterListeWidget(QWidget):
         self._anzahl_lbl = QLabel()
         self._anzahl_lbl.setStyleSheet("color:#555;font-size:11px;")
         fl.addWidget(self._anzahl_lbl)
+
+        btn_prm = _btn("📥  PRM importieren", "#6a1b9a", "#4a148c")
+        btn_prm.setToolTip("PRM-Schulungen aus zertifikate_aktuell.xlsx importieren")
+        btn_prm.clicked.connect(self._prm_importieren)
+        fl.addWidget(btn_prm)
         v.addWidget(fframe)
 
         # ── Tabelle ───────────────────────────────────────────────────────
@@ -1754,6 +1760,68 @@ class _MitarbeiterListeWidget(QWidget):
         except FileNotFoundError:
             import os
             os.startfile(mailto)
+
+    def _prm_importieren(self):
+        """PRM-Schulungen aus zertifikate_aktuell.xlsx importieren."""
+        from functions.schulungen_db import prm_schulung_importieren, _PRM_EXCEL_PFAD
+        import os
+
+        pfad = str(_PRM_EXCEL_PFAD)
+        if not os.path.isfile(pfad):
+            QMessageBox.warning(
+                self, "Datei nicht gefunden",
+                f"Die PRM-Schulungsdatei wurde nicht gefunden:\n{pfad}\n\n"
+                "Bitte Datei prüfen und erneut versuchen.",
+            )
+            return
+
+        antwort = QMessageBox.question(
+            self, "PRM-Schulungen importieren",
+            f"Sollen die PRM-Schulungen aus\n<b>{pfad}</b>\nimportiert werden?\n\n"
+            "Bereits vorhandene PRM-Einträge werden aktualisiert.\n"
+            "Nicht vorhandene Mitarbeiter werden neu angelegt.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if antwort != QMessageBox.StandardButton.Yes:
+            return
+
+        fortschritt = QProgressDialog("PRM-Schulungen werden importiert …", None, 0, 0, self)
+        fortschritt.setWindowModality(Qt.WindowModality.WindowModal)
+        fortschritt.show()
+
+        try:
+            ergebnis = prm_schulung_importieren(pfad)
+        except Exception as exc:
+            fortschritt.close()
+            QMessageBox.critical(self, "Import-Fehler", f"Fehler beim Import:\n{exc}")
+            return
+        finally:
+            fortschritt.close()
+
+        importiert   = ergebnis["importiert"]
+        neu_angelegt = ergebnis["neu_angelegt"]
+        kein_match   = ergebnis["kein_match"]
+
+        bericht = (
+            f"<b>Import abgeschlossen</b><br><br>"
+            f"Einträge verarbeitet:  <b>{importiert}</b><br>"
+            f"Neue Mitarbeiter angelegt: <b>{neu_angelegt}</b><br>"
+        )
+        if kein_match:
+            bericht += (
+                f"<br>Folgende Namen aus der Excel-Datei konnten keinem vorhandenen "
+                f"Mitarbeiter zugeordnet werden und wurden <b>neu angelegt</b>:<br>"
+                + "".join(f"&nbsp;&nbsp;• {n}<br>" for n in kein_match)
+            )
+
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle("PRM-Import Ergebnis")
+        dlg.setIcon(QMessageBox.Icon.Information)
+        dlg.setTextFormat(Qt.TextFormat.RichText)
+        dlg.setText(bericht)
+        dlg.exec()
+
+        self.aktualisieren()
 
     def _filter_zuruecksetzen(self):
         self._suche.clear()
