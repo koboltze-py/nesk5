@@ -708,6 +708,7 @@ class MitarbeiterHauptWidget(QWidget):
 
         self._tabs.addTab(self._dokumente_placeholder, "🗂️  Verwaltung")
         self._tabs.addTab(self._uebersicht_tab,        "👥  Übersicht")
+        self._tabs.setTabVisible(1, False)
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
         layout.addWidget(self._tabs)

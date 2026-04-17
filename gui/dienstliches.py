@@ -2812,9 +2812,12 @@ class _PatientenTab(QWidget):
         jahr  = self._combo_jahr.currentData()
         monat = self._combo_monat.currentData()
         suche = self._suche.text().strip() or None
-        try:
-            eintraege = lade_patienten(monat=monat, jahr=jahr, suchtext=suche)
-        except Exception as exc:
+        from gui.splash_screen import _mit_ladeanimation
+        eintraege, exc = _mit_ladeanimation(
+            self, "Patientendaten werden geladen …",
+            lade_patienten, monat=monat, jahr=jahr, suchtext=suche,
+        )
+        if exc is not None:
             QMessageBox.critical(self, "Datenbankfehler", str(exc))
             return
 
@@ -3363,9 +3366,12 @@ class _EinsaetzeTab(QWidget):
         jahr   = self._combo_jahr.currentData()
         monat  = self._combo_monat.currentData()
         suche  = self._suche.text().strip() or None
-        try:
-            eintraege = lade_einsaetze(monat=monat, jahr=jahr, suchtext=suche)
-        except Exception as exc:
+        from gui.splash_screen import _mit_ladeanimation
+        eintraege, exc = _mit_ladeanimation(
+            self, "Einsatzdaten werden geladen …",
+            lade_einsaetze, monat=monat, jahr=jahr, suchtext=suche,
+        )
+        if exc is not None:
             QMessageBox.critical(self, "Datenbankfehler", str(exc))
             return
 

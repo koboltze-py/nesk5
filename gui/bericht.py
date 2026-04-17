@@ -818,7 +818,12 @@ class BerichtWidget(QWidget):
 
     # ── Vorschau aktualisieren ────────────────────────────────────────────────
     def _aktualisiere_vorschau(self):
-        abschnitte = self._lade_abschnitte()
+        from gui.splash_screen import _mit_ladeanimation
+        abschnitte, exc = _mit_ladeanimation(
+            self, "Berichtdaten werden geladen …", self._lade_abschnitte
+        )
+        if exc is not None or abschnitte is None:
+            abschnitte = []
         vorschau_daten = [
             {
                 "name": a["titel"],
@@ -860,7 +865,12 @@ class BerichtWidget(QWidget):
         return os.path.join(_BERICHT_DIR, f"Bericht_{heute}.xlsx")
 
     def _excel_exportieren(self, ask_path: bool = True) -> str | None:
-        abschnitte = self._lade_abschnitte()
+        from gui.splash_screen import _mit_ladeanimation
+        abschnitte, exc = _mit_ladeanimation(
+            self, "Berichtdaten werden geladen …", self._lade_abschnitte
+        )
+        if exc is not None or abschnitte is None:
+            abschnitte = []
         if not abschnitte:
             QMessageBox.warning(self, "Keine Daten", "Bitte mindestens einen Abschnitt aktivieren.")
             return None
@@ -895,7 +905,12 @@ class BerichtWidget(QWidget):
 
     # ── Per E-Mail senden ─────────────────────────────────────────────────────
     def _per_mail_senden(self):
-        abschnitte = self._lade_abschnitte()
+        from gui.splash_screen import _mit_ladeanimation
+        abschnitte, exc = _mit_ladeanimation(
+            self, "Berichtdaten werden geladen …", self._lade_abschnitte
+        )
+        if exc is not None or abschnitte is None:
+            abschnitte = []
         if not abschnitte:
             QMessageBox.warning(self, "Keine Daten", "Bitte mindestens einen Abschnitt aktivieren.")
             return

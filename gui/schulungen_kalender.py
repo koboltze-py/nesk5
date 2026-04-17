@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QFrame, QDialog, QFormLayout, QLineEdit, QComboBox,
     QDateEdit, QTextEdit, QScrollArea, QSizePolicy, QMessageBox,
     QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
-    QSplitter, QGroupBox, QCheckBox, QProgressDialog,
+    QSplitter, QGroupBox, QCheckBox, QProgressDialog, QInputDialog,
 )
 from PySide6.QtCore import Qt, QDate, QSize, Signal
 from PySide6.QtGui import QFont, QColor, QPainter, QPen, QBrush, QCursor
@@ -19,6 +19,7 @@ from PySide6.QtGui import QFont, QColor, QPainter, QPen, QBrush, QCursor
 import os
 
 from config import FIORI_BLUE, BASE_DIR as _SCHULUNG_BASE_DIR
+from gui.splash_screen import _mit_ladeanimation
 
 _SCHULUNG_EXPORT_DIR = os.path.join(_SCHULUNG_BASE_DIR, "Daten", "Schulungen")
 
@@ -1526,10 +1527,11 @@ class _MitarbeiterListeWidget(QWidget):
     # ── Daten laden ───────────────────────────────────────────────────────
     def aktualisieren(self):
         from functions.schulungen_db import lade_mitarbeiter_mit_schulungen
-        try:
-            self._alle_daten = lade_mitarbeiter_mit_schulungen()
-        except Exception:
-            self._alle_daten = []
+        daten, exc = _mit_ladeanimation(
+            self, "Schulungsdaten werden geladen \u2026",
+            lade_mitarbeiter_mit_schulungen,
+        )
+        self._alle_daten = daten if daten is not None else []
         self._filter_anwenden()
 
     # ── Filter ────────────────────────────────────────────────────────────
@@ -1763,6 +1765,17 @@ class _MitarbeiterListeWidget(QWidget):
 
     def _prm_importieren(self):
         """PRM-Schulungen aus zertifikate_aktuell.xlsx importieren."""
+        # Passwortschutz
+        pw, ok = QInputDialog.getText(
+            self, "Passwort erforderlich",
+            "Bitte Passwort eingeben:",
+            QLineEdit.EchoMode.Password,
+        )
+        if not ok or pw != "mettwurst":
+            if ok:
+                QMessageBox.warning(self, "Zugriff verweigert", "Falsches Passwort.")
+            return
+
         from functions.schulungen_db import prm_schulung_importieren, _PRM_EXCEL_PFAD
         import os
 
@@ -1785,18 +1798,13 @@ class _MitarbeiterListeWidget(QWidget):
         if antwort != QMessageBox.StandardButton.Yes:
             return
 
-        fortschritt = QProgressDialog("PRM-Schulungen werden importiert …", None, 0, 0, self)
-        fortschritt.setWindowModality(Qt.WindowModality.WindowModal)
-        fortschritt.show()
-
-        try:
-            ergebnis = prm_schulung_importieren(pfad)
-        except Exception as exc:
-            fortschritt.close()
+        ergebnis, exc = _mit_ladeanimation(
+            self, "PRM-Schulungen werden importiert …",
+            prm_schulung_importieren, pfad,
+        )
+        if exc is not None:
             QMessageBox.critical(self, "Import-Fehler", f"Fehler beim Import:\n{exc}")
             return
-        finally:
-            fortschritt.close()
 
         importiert   = ergebnis["importiert"]
         neu_angelegt = ergebnis["neu_angelegt"]
@@ -2003,9 +2011,11 @@ class SchulungenKalenderWidget(QWidget):
             "Juli", "August", "September", "Oktober", "November", "Dezember"
         ]
         self._monat_lbl.setText(f"{monate_de[self._monat]} {self._jahr}")
-        try:
-            daten = lade_kalender_daten(self._jahr, self._monat)
-        except Exception:
+        daten, _ = _mit_ladeanimation(
+            self, "Kalender wird geladen …",
+            lade_kalender_daten, self._jahr, self._monat,
+        )
+        if daten is None:
             daten = {}
         self._kalender.setze_monat(self._jahr, self._monat, daten)
         self._agenda.aktualisieren()
@@ -2049,25 +2059,23 @@ class SchulungenKalenderWidget(QWidget):
         )
         if not pfad:
             return
-        prog = QProgressDialog("Importiere …", None, 0, 0, self)
-        prog.setWindowTitle("Excel-Import")
-        prog.setWindowModality(Qt.WindowModality.WindowModal)
-        prog.show()
-        try:
-            imp, skip = excel_importieren(pfad)
-            prog.close()
-            QMessageBox.information(
-                self, "Import abgeschlossen",
-                f"✅ Erfolgreich importiert: {imp} Mitarbeiter\n"
-                f"⏭ Übersprungen (leer): {skip}"
+        ergebnis, exc = _mit_ladeanimation(
+            self, "Excel-Schulungsdaten werden importiert …",
+            excel_importieren, pfad,
+        )
+        if exc is not None:
+            QMessageBox.critical(
+                self, "Import-Fehler",
+                str(exc) if isinstance(exc, ImportError) else f"Import-Fehler:\n{exc}",
             )
-            self._aktualisieren()
-        except ImportError as e:
-            prog.close()
-            QMessageBox.critical(self, "Fehler", str(e))
-        except Exception as e:
-            prog.close()
-            QMessageBox.critical(self, "Import-Fehler", str(e))
+            return
+        imp, skip = ergebnis
+        QMessageBox.information(
+            self, "Import abgeschlossen",
+            f"✅ Erfolgreich importiert: {imp} Mitarbeiter\n"
+            f"⏭ Übersprungen (leer): {skip}"
+        )
+        self._aktualisieren()
 
     def _schulungen_excel_export(self):
         """Öffnet den Export-Dialog und speichert ablaufende Schulungen als Excel."""
