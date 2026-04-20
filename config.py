@@ -80,5 +80,7 @@ FIORI_SIDEBAR_BG  = "#354a5e"
 GEMINI_API_KEY = "AIzaSyAoO7bSaxupDJszFv3oS3POA4b0AGMatRQ"
 
 # ─── Datenbank-Pfade (explizit) ───────────────────────────────────────────────
-BESCHWERDEN_DB_PATH = os.path.join(_DB_DIR, "beschwerden.db")
-SANMAT_DB_PATH      = os.path.join(_DB_DIR, "sanmat.db")
+BESCHWERDEN_DB_PATH   = os.path.join(_DB_DIR, "beschwerden.db")
+SANMAT_DB_PATH        = os.path.join(_DB_DIR, "sanmat.db")
+VORKOMMNISSE_DB_PATH  = os.path.join(_DB_DIR, "vorkommnisse.db")
+NOTIZEN_DB_PATH       = os.path.join(_DB_DIR, "notizen.db")

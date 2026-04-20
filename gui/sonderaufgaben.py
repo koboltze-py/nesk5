@@ -928,9 +928,21 @@ class SonderaufgabenWidget(QWidget):
             return
 
         try:
-            import os as _os
-            for _ in range(anzahl):
-                _os.startfile(str(saved), "print")
+            import os as _os, shutil as _shutil, time as _time, tempfile as _tmp
+            from pathlib import Path as _Path
+            for i in range(anzahl):
+                # Jede Kopie als eigene Temp-Datei senden, damit Excel
+                # nicht die bereits laufende Verarbeitung erkennt und abbricht
+                tmp = _Path(_tmp.mktemp(suffix=".xlsx", dir=saved.parent))
+                _shutil.copy2(saved, tmp)
+                try:
+                    _os.startfile(str(tmp), "print")
+                except Exception:
+                    tmp.unlink(missing_ok=True)
+                    raise
+                # kurz warten, damit der Druckauftrag übergeben werden kann
+                if i < anzahl - 1:
+                    _time.sleep(3)
         except Exception as exc:
             QMessageBox.critical(self, "Fehler", f"Drucken fehlgeschlagen:\n{exc}")
 
