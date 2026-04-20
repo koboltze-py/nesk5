@@ -175,6 +175,7 @@ from gui.telefonnummern         import TelefonnummernWidget
 from gui.call_transcription     import CallTranscriptionWidget
 from gui.backup_widget          import BackupWidget
 from gui.passagiere             import PassagiereWidget
+from gui.vorkommnisse           import VorkommnisseWidget
 
 
 NAV_ITEMS = [
@@ -192,6 +193,7 @@ NAV_ITEMS = [
     ("♿", "Call Transcription",  11),
     ("💾", "Backup",             12),
     ("⚙️",  "Einstellungen",    13),
+    ("⚠️",  "Vorkommnisse",     14),
 ]
 
 NAV_TOOLTIPS = [
@@ -209,6 +211,7 @@ NAV_TOOLTIPS = [
     "Anrufprotokoll: Anrufinhalte mit Textbausteinen schnell erfassen und verwalten",
     "Datensicherung erstellen und wiederherstellen",
     "App-Einstellungen, Pfade und E-Mobby-Fahrerliste",
+    "Vorkommnisse erfassen und verwalten",
 ]
 
 
@@ -405,6 +408,7 @@ class MainWindow(QMainWindow):
         self._backup_page            = BackupWidget()
         self._settings_page          = EinstellungenWidget()
         self._passagiere_page        = PassagiereWidget()
+        self._vorkommnisse_page      = VorkommnisseWidget()
         for page in [self._dashboard_page, self._mitarbeiter_page,
                      self._dienstliches_page,
                      self._aufgaben_haupt_page,
@@ -414,7 +418,8 @@ class MainWindow(QMainWindow):
                      self._passagiere_page,
                      self._telefonnummern_page,
                      self._call_transcription_page,
-                     self._backup_page, self._settings_page]:
+                     self._backup_page, self._settings_page,
+                     self._vorkommnisse_page]:
             self._stack.addWidget(page)
 
         layout.addWidget(self._stack)

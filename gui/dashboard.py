@@ -16,29 +16,43 @@ from config import FIORI_BLUE, FIORI_TEXT, FIORI_WHITE, FIORI_SUCCESS, FIORI_WAR
 
 
 class _TerminKalender(QCalendarWidget):
-    """QCalendarWidget mit kleinem farbigen Punkt für Tage mit Terminen."""
+    """QCalendarWidget mit kleinem farbigen Punkt für Tage mit Terminen/Notizen."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._termin_dates: set[str] = set()  # 'YYYY-MM-DD'
+        self._termin_dates: set[str] = set()  # 'YYYY-MM-DD'  → blauer Punkt
+        self._notiz_dates:  set[str] = set()  # 'YYYY-MM-DD'  → grüner Punkt
 
     def set_termin_dates(self, dates: set[str]):
         self._termin_dates = dates
         self.updateCells()
 
+    def set_notiz_dates(self, dates: set[str]):
+        self._notiz_dates = dates
+        self.updateCells()
+
     def paintCell(self, painter: QPainter, rect: QRect, date: QDate):
         super().paintCell(painter, rect, date)
         datum_str = date.toString("yyyy-MM-dd")
-        if datum_str in self._termin_dates:
-            painter.save()
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            dot_r = 4
-            cx = rect.center().x()
-            cy = rect.bottom() - dot_r - 2
-            painter.setPen(Qt.PenStyle.NoPen)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        dot_r = 3
+        cy = rect.bottom() - dot_r - 2
+        cx = rect.center().x()
+        # Fahrzeug-Termin: blauer Punkt (links)
+        if datum_str in self._termin_dates and datum_str in self._notiz_dates:
+            painter.setBrush(QBrush(QColor("#1565c0")))
+            painter.drawEllipse(cx - dot_r - 5, cy - dot_r, dot_r * 2, dot_r * 2)
+            painter.setBrush(QBrush(QColor("#2e7d32")))
+            painter.drawEllipse(cx + 1, cy - dot_r, dot_r * 2, dot_r * 2)
+        elif datum_str in self._termin_dates:
             painter.setBrush(QBrush(QColor("#1565c0")))
             painter.drawEllipse(cx - dot_r, cy - dot_r, dot_r * 2, dot_r * 2)
-            painter.restore()
+        elif datum_str in self._notiz_dates:
+            painter.setBrush(QBrush(QColor("#2e7d32")))
+            painter.drawEllipse(cx - dot_r, cy - dot_r, dot_r * 2, dot_r * 2)
+        painter.restore()
 
 
 class StatCard(QFrame):
@@ -314,7 +328,7 @@ class DashboardWidget(QWidget):
                 color: #bbb;
             }
         """)
-        self._kalender.clicked.connect(self._kalender_tag_geklickt)
+        self._kalender.activated.connect(self._kalender_tag_geklickt)
         linke.addWidget(self._kalender)
 
         # Termin-Liste
@@ -394,6 +408,41 @@ class DashboardWidget(QWidget):
         self._km_table.setMinimumHeight(120)
         self._km_table.setMaximumHeight(280)
         linke.addWidget(self._km_table)
+
+        # ── Eigene Notizen ─────────────────────────────────────────────────
+        notiz_hdr_row = QHBoxLayout()
+        notiz_hdr = QLabel("📝  Eigene Notizen")
+        notiz_hdr.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        notiz_hdr.setStyleSheet(f"color: {FIORI_TEXT};")
+        notiz_hdr_row.addWidget(notiz_hdr)
+        notiz_hdr_row.addStretch()
+        from PySide6.QtWidgets import QPushButton as _QPB3
+        self._notiz_neu_btn = _QPB3("➕  Neue Notiz")
+        self._notiz_neu_btn.setToolTip("Neue persönliche Notiz erstellen")
+        self._notiz_neu_btn.setFixedHeight(26)
+        self._notiz_neu_btn.setStyleSheet(
+            "QPushButton { font-size: 11px; padding: 2px 10px; "
+            "background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; "
+            "border-radius: 4px; } "
+            "QPushButton:hover { background: #c8e6c9; }"
+        )
+        self._notiz_neu_btn.clicked.connect(self._neue_notiz_dialog)
+        notiz_hdr_row.addWidget(self._notiz_neu_btn)
+        linke.addLayout(notiz_hdr_row)
+
+        self._notiz_scroll = QScrollArea()
+        self._notiz_scroll.setWidgetResizable(True)
+        self._notiz_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._notiz_scroll.setMinimumHeight(100)
+        self._notiz_scroll.setMaximumHeight(240)
+        self._notiz_scroll.setStyleSheet("background: transparent;")
+        self._notiz_container = QWidget()
+        self._notiz_container.setStyleSheet("background: transparent;")
+        self._notiz_vlayout = QVBoxLayout(self._notiz_container)
+        self._notiz_vlayout.setSpacing(5)
+        self._notiz_vlayout.setContentsMargins(0, 0, 0, 0)
+        self._notiz_scroll.setWidget(self._notiz_container)
+        linke.addWidget(self._notiz_scroll)
 
         linke.addStretch()
         outer.addLayout(linke, 6)
@@ -570,38 +619,118 @@ class DashboardWidget(QWidget):
     # ── Kalender-Klick ────────────────────────────────────────────────────
 
     def _kalender_tag_geklickt(self, datum: QDate):
-        datum_str = datum.toString("yyyy-MM-dd")
+        from PySide6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
+            QScrollArea, QPushButton as _QB, QSizePolicy,
+        )
+        datum_str    = datum.toString("yyyy-MM-dd")
+        datum_de_str = datum.toString("dd.MM.yyyy")
         treffer = [t for t in self._termine if t.get("datum") == datum_str]
-        if not treffer:
-            return
 
         _WOCHENTAGE = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag"]
         wd = _WOCHENTAGE[datum.dayOfWeek() - 1]
         datum_de = f"{wd}, {datum.day():02d}.{datum.month():02d}.{datum.year()}"
 
-        zeilen = []
-        for t in treffer:
-            kz    = t.get("kennzeichen", "?")
-            typ   = t.get("fzg_typ", "") or ""
-            titel = t.get("titel", "") or t.get("typ", "")
-            uhr   = t.get("uhrzeit", "") or ""
-            beschr = t.get("beschreibung", "") or ""
+        try:
+            from functions.notizen_db import lade_fuer_datum
+            notizen_tag = lade_fuer_datum(datum_de_str)
+        except Exception:
+            notizen_tag = []
 
-            zeile = f"🚗  [{kz}]"
-            if typ:
-                zeile += f"  {typ}"
-            if uhr:
-                zeile += f"  –  {uhr} Uhr"
-            zeile += f"\n    {titel}"
-            if beschr:
-                zeile += f"\n    {beschr}"
-            zeilen.append(zeile)
+        # ── Dialog aufbauen ───────────────────────────────────────────
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"📅  {datum_de}")
+        dlg.setMinimumWidth(440)
+        dlg.setStyleSheet("QDialog { background: #f4f6f8; }")
 
-        QMessageBox.information(
-            self,
-            f"📅  Fahrzeug-Termine – {datum_de}",
-            "\n\n".join(zeilen),
+        main_v = QVBoxLayout(dlg)
+        main_v.setContentsMargins(16, 14, 16, 14)
+        main_v.setSpacing(12)
+
+        def _sep_lbl(text, bg, fg="#fff"):
+            lbl = QLabel(text)
+            lbl.setStyleSheet(
+                f"background: {bg}; color: {fg}; font-size: 11px; font-weight: bold; "
+                "padding: 3px 8px; border-radius: 3px;"
+            )
+            return lbl
+
+        def _karte(text, bg, border):
+            f = QFrame()
+            f.setStyleSheet(
+                f"QFrame {{ background: {bg}; border-left: 3px solid {border}; "
+                f"border-radius: 4px; }}"
+            )
+            lbl = QLabel(text)
+            lbl.setWordWrap(True)
+            lbl.setStyleSheet("border: none; font-size: 12px; padding: 2px 0;")
+            fl = QVBoxLayout(f)
+            fl.setContentsMargins(8, 6, 8, 6)
+            fl.addWidget(lbl)
+            return f
+
+        # ── Fahrzeug-Termine ──────────────────────────────────────
+        main_v.addWidget(_sep_lbl("🚗  Fahrzeug-Termine", "#1565a8"))
+        if treffer:
+            for t in treffer:
+                kz    = t.get("kennzeichen", "?")
+                ftyp  = t.get("fzg_typ", "") or ""
+                titel = t.get("titel", "") or t.get("typ", "")
+                uhr   = t.get("uhrzeit", "") or ""
+                beschr = t.get("beschreibung", "") or ""
+                zeile = f"<b>[{kz}]</b>"
+                if ftyp:  zeile += f"  {ftyp}"
+                if uhr:   zeile += f"  –  {uhr} Uhr"
+                zeile += f"<br><span style='color:#555;'>{titel}</span>"
+                if beschr: zeile += f"<br><span style='color:#888; font-size:11px;'>{beschr}</span>"
+                main_v.addWidget(_karte(zeile, "#e8f0fb", "#1565a8"))
+        else:
+            leer = QLabel("✔  Keine Fahrzeug-Termine")
+            leer.setStyleSheet("color: #aaa; font-size: 11px; font-style: italic; padding: 2px 4px;")
+            main_v.addWidget(leer)
+
+        # ── Eigene Notizen ───────────────────────────────────────
+        main_v.addWidget(_sep_lbl("📝  Eigene Notizen", "#2e7d32"))
+        if notizen_tag:
+            _STATUS_ICON = {"offen": "🟢", "gelesen": "🔵", "erledigt": "✅"}
+            for n in notizen_tag:
+                si = _STATUS_ICON.get(n["status"], "📝")
+                txt = f"{si}  <b>{n['titel']}</b>"
+                if n["text"]:
+                    txt += f"<br><span style='color:#555; font-size:11px;'>{n['text']}</span>"
+                txt += f"<br><span style='color:#999; font-size:10px;'>{n['status'].capitalize()}</span>"
+                main_v.addWidget(_karte(txt, "#e8f5e9", "#2e7d32"))
+        else:
+            leer2 = QLabel("✔  Keine Notizen für diesen Tag")
+            leer2.setStyleSheet("color: #aaa; font-size: 11px; font-style: italic; padding: 2px 4px;")
+            main_v.addWidget(leer2)
+
+        # ── Buttons ───────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        btn_neu = _QB("➕  Neue Notiz")
+        btn_neu.setStyleSheet(
+            "QPushButton { background: #2e7d32; color: white; border-radius: 4px; "
+            "padding: 6px 16px; font-weight: bold; } "
+            "QPushButton:hover { background: #1b5e20; }"
         )
+        btn_close = _QB("Schließen")
+        btn_close.setStyleSheet(
+            "QPushButton { background: #e0e0e0; color: #333; border-radius: 4px; padding: 6px 14px; } "
+            "QPushButton:hover { background: #bdbdbd; }"
+        )
+
+        def _neue_notiz_und_refresh():
+            dlg.accept()
+            self._neue_notiz_dialog(datum_de_str)
+
+        btn_neu.clicked.connect(_neue_notiz_und_refresh)
+        btn_close.clicked.connect(dlg.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_close)
+        btn_row.addWidget(btn_neu)
+        main_v.addLayout(btn_row)
+
+        dlg.exec()
 
     # ── Kalender-Markierungen ─────────────────────────────────────────────
 
@@ -651,6 +780,21 @@ class DashboardWidget(QWidget):
                 by_date.setdefault(ds, []).append(t)
 
         self._kalender.set_termin_dates(set(by_date.keys()))
+
+        # Notiz-Dots im Kalender (grün) — aus aktiven Notizen der letzten 5 Tage
+        try:
+            from functions.notizen_db import lade_alle as _lade_alle_notizen
+            from datetime import datetime as _dt2
+            _notiz_iso: set[str] = set()
+            for _n in _lade_alle_notizen():
+                try:
+                    _nd = _dt2.strptime(_n["datum"], "%d.%m.%Y")
+                    _notiz_iso.add(_nd.strftime("%Y-%m-%d"))
+                except ValueError:
+                    pass
+            self._kalender.set_notiz_dates(_notiz_iso)
+        except Exception:
+            pass
 
         for datum_str, tage_termine in by_date.items():
             parts = datum_str.split("-")
@@ -1026,6 +1170,9 @@ class DashboardWidget(QWidget):
         # PAX-Statistiken
         self._lade_pax_stats()
 
+        # Notizen laden + anzeigen
+        self._zeige_notizen()
+
     # ── PAX-Statistiken ───────────────────────────────────────────────────
 
     def _lade_pax_stats(self):
@@ -1135,3 +1282,280 @@ class DashboardWidget(QWidget):
     def get_termine(self) -> list[dict]:
         """Gibt die zuletzt geladenen Fahrzeug-Termine zurück (für badge/popup)."""
         return self._termine
+
+    # ── Notizen ───────────────────────────────────────────────────────────────
+
+    def _zeige_notizen(self):
+        """Notizen der letzten 5 Tage, nach Datum gruppiert."""
+        while self._notiz_vlayout.count():
+            item = self._notiz_vlayout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        try:
+            from functions.notizen_db import lade_aktive
+            notizen = lade_aktive()
+        except Exception:
+            notizen = []
+
+        if not notizen:
+            leer = QLabel("Keine aktuellen Notizen (letzte 5 Tage)")
+            leer.setStyleSheet("color: #aaa; font-size: 11px; font-style: italic; padding: 4px 2px;")
+            self._notiz_vlayout.addWidget(leer)
+            return
+
+        from PySide6.QtWidgets import QPushButton as _QPB4
+        from datetime import datetime as _dtt, date as _ddate
+
+        _WOCHENTAGE = ["Mo","Di","Mi","Do","Fr","Sa","So"]
+        _MONATE_K   = ["","Jan","Feb","Mrz","Apr","Mai","Jun",
+                       "Jul","Aug","Sep","Okt","Nov","Dez"]
+
+        # Nach Datum gruppieren (Reihenfolge: neueste zuerst)
+        gruppen: dict[str, list] = {}
+        for n in notizen:
+            gruppen.setdefault(n["datum"], []).append(n)
+
+        _BTN_MINI = (
+            "QPushButton {{ font-size: 10px; padding: 1px 8px; border-radius: 3px; "
+            "background: {bg}; color: {fg}; border: 1px solid {bd}; }} "
+            "QPushButton:hover {{ background: {hv}; }}"
+        )
+
+        heute = _ddate.today()
+
+        for datum_str, gruppe in gruppen.items():
+            # ── Tages-Trennlinie ───────────────────────────────────────
+            try:
+                d = _dtt.strptime(datum_str, "%d.%m.%Y").date()
+                wd = _WOCHENTAGE[d.weekday()]
+                mo = _MONATE_K[d.month]
+                if d == heute:
+                    tag_label = f"🟢  Heute – {wd}, {d.day}. {mo} {d.year}"
+                    hdr_bg    = "#2e7d32"
+                elif d == heute.replace(day=heute.day - 1) if heute.day > 1 else None:
+                    tag_label = f"🔵  Gestern – {wd}, {d.day}. {mo} {d.year}"
+                    hdr_bg    = "#1565a8"
+                else:
+                    tag_label = f"📍  {wd}, {d.day}. {mo} {d.year}"
+                    hdr_bg    = "#546e7a"
+            except ValueError:
+                tag_label = f"📍  {datum_str}"
+                hdr_bg    = "#546e7a"
+                d         = None
+
+            hdr = QLabel(tag_label)
+            hdr.setStyleSheet(
+                f"background: {hdr_bg}; color: white; font-size: 11px; font-weight: bold; "
+                "padding: 3px 8px; border-radius: 3px; margin-top: 4px;"
+            )
+            self._notiz_vlayout.addWidget(hdr)
+
+            for n in gruppe:
+                nid    = n["id"]
+                titel  = n["titel"]
+                text   = n["text"]
+                status = n["status"]
+
+                if status == "erledigt":
+                    border_color = "#9e9e9e"
+                    bg_color     = "#f5f5f5"
+                    txt_color    = "#9e9e9e"
+                elif status == "gelesen":
+                    border_color = "#1976d2"
+                    bg_color     = "#e3f2fd"
+                    txt_color    = "#1565c0"
+                else:
+                    border_color = "#2e7d32"
+                    bg_color     = "#e8f5e9"
+                    txt_color    = "#1b5e20"
+
+                card = QFrame()
+                card.setStyleSheet(
+                    f"QFrame {{ background: {bg_color}; border-left: 3px solid {border_color}; "
+                    f"border-radius: 4px; margin-left: 8px; }}"
+                )
+                card_v = QVBoxLayout(card)
+                card_v.setContentsMargins(8, 5, 8, 5)
+                card_v.setSpacing(2)
+
+                status_icon = {"offen": "🟢", "gelesen": "🔵", "erledigt": "✅"}.get(status, "📝")
+                titel_lbl = QLabel(f"{status_icon}  <b>{titel}</b>")
+                titel_lbl.setStyleSheet(f"color: {txt_color}; font-size: 12px; border: none;")
+                card_v.addWidget(titel_lbl)
+
+                if text:
+                    txt_lbl = QLabel(text)
+                    txt_lbl.setWordWrap(True)
+                    txt_lbl.setStyleSheet(f"color: {txt_color}; font-size: 11px; border: none;")
+                    card_v.addWidget(txt_lbl)
+
+                btn_row = QHBoxLayout()
+                btn_row.setContentsMargins(0, 3, 0, 0)
+                btn_row.setSpacing(6)
+
+                if status == "offen":
+                    btn_gelesen = _QPB4("👁  Gelesen")
+                    btn_gelesen.setFixedHeight(20)
+                    btn_gelesen.setStyleSheet(_BTN_MINI.format(
+                        bg="#bbdefb", fg="#0d47a1", bd="#90caf9", hv="#90caf9"
+                    ))
+                    btn_gelesen.clicked.connect(lambda _, _nid=nid: self._notiz_als_gelesen(_nid))
+                    btn_row.addWidget(btn_gelesen)
+
+                if status != "erledigt":
+                    btn_erledigt = _QPB4("✅  Erledigt")
+                    btn_erledigt.setFixedHeight(20)
+                    btn_erledigt.setStyleSheet(_BTN_MINI.format(
+                        bg="#c8e6c9", fg="#1b5e20", bd="#a5d6a7", hv="#a5d6a7"
+                    ))
+                    btn_erledigt.clicked.connect(lambda _, _nid=nid: self._notiz_als_erledigt(_nid))
+                    btn_row.addWidget(btn_erledigt)
+
+                btn_del = _QPB4("🗑")
+                btn_del.setFixedHeight(20)
+                btn_del.setFixedWidth(28)
+                btn_del.setToolTip("Notiz löschen")
+                btn_del.setStyleSheet(_BTN_MINI.format(
+                    bg="#fce8e8", fg="#b71c1c", bd="#ef9a9a", hv="#ef9a9a"
+                ))
+                btn_del.clicked.connect(lambda _, _nid=nid: self._notiz_loeschen(_nid))
+                btn_row.addWidget(btn_del)
+                btn_row.addStretch()
+                card_v.addLayout(btn_row)
+
+                self._notiz_vlayout.addWidget(card)
+
+    def _notiz_als_gelesen(self, nid: int):
+        try:
+            from functions.notizen_db import als_gelesen
+            als_gelesen(nid)
+        except Exception:
+            pass
+        self._zeige_notizen()
+
+    def _notiz_als_erledigt(self, nid: int):
+        try:
+            from functions.notizen_db import als_erledigt
+            als_erledigt(nid)
+        except Exception:
+            pass
+        self._zeige_notizen()
+        self._markiere_termine()  # Kalender-Dots aktualisieren
+
+    def _notiz_loeschen(self, nid: int):
+        from PySide6.QtWidgets import QMessageBox as _QMB
+        if _QMB.question(
+            self, "Notiz löschen",
+            "Notiz wirklich dauerhaft löschen?",
+            _QMB.StandardButton.Yes | _QMB.StandardButton.No,
+            _QMB.StandardButton.No,
+        ) != _QMB.StandardButton.Yes:
+            return
+        try:
+            from functions.notizen_db import loeschen
+            loeschen(nid)
+        except Exception:
+            pass
+        self._zeige_notizen()
+        self._markiere_termine()
+
+    def _neue_notiz_dialog(self, vorgabe_datum: str = ""):
+        """Dialog zum Erstellen einer neuen Notiz."""
+        from PySide6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+            QTextEdit, QPushButton, QDateEdit,
+        )
+        from PySide6.QtCore import QDate
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("📝  Neue Notiz")
+        dlg.setMinimumWidth(400)
+        dlg.setStyleSheet("QDialog { background: #f9f9f9; }")
+
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(10)
+        layout.setContentsMargins(18, 16, 18, 16)
+
+        # Titel
+        layout.addWidget(QLabel("<b>Titel:</b>"))
+        titel_edit = QLineEdit()
+        titel_edit.setPlaceholderText("Kurzer Betreff …")
+        titel_edit.setStyleSheet(
+            "QLineEdit { border: 1px solid #ccc; border-radius: 4px; padding: 4px 8px; background: white; }"
+        )
+        layout.addWidget(titel_edit)
+
+        # Datum
+        layout.addWidget(QLabel("<b>Datum:</b>"))
+        datum_edit = QDateEdit()
+        datum_edit.setCalendarPopup(True)
+        datum_edit.setDisplayFormat("dd.MM.yyyy")
+        datum_edit.setStyleSheet(
+            "QDateEdit { border: 1px solid #ccc; border-radius: 4px; padding: 4px 8px; background: white; }"
+        )
+        if vorgabe_datum:
+            try:
+                from datetime import datetime as _dt3
+                _d = _dt3.strptime(vorgabe_datum, "%d.%m.%Y")
+                datum_edit.setDate(QDate(_d.year, _d.month, _d.day))
+            except ValueError:
+                datum_edit.setDate(QDate.currentDate())
+        else:
+            datum_edit.setDate(QDate.currentDate())
+        layout.addWidget(datum_edit)
+
+        # Text
+        layout.addWidget(QLabel("<b>Notiz</b> (optional):"))
+        text_edit = QTextEdit()
+        text_edit.setPlaceholderText("Weitere Details …")
+        text_edit.setFixedHeight(90)
+        text_edit.setStyleSheet(
+            "QTextEdit { border: 1px solid #ccc; border-radius: 4px; padding: 4px 8px; background: white; }"
+        )
+        layout.addWidget(text_edit)
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        btn_ok = QPushButton("💾  Speichern")
+        btn_ok.setStyleSheet(
+            "QPushButton { background: #2e7d32; color: white; border-radius: 4px; "
+            "padding: 6px 18px; font-weight: bold; } "
+            "QPushButton:hover { background: #1b5e20; }"
+        )
+        btn_ab = QPushButton("Abbrechen")
+        btn_ab.setStyleSheet(
+            "QPushButton { background: #e0e0e0; color: #333; border-radius: 4px; padding: 6px 14px; } "
+            "QPushButton:hover { background: #bdbdbd; }"
+        )
+        btn_ok.clicked.connect(dlg.accept)
+        btn_ab.clicked.connect(dlg.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_ab)
+        btn_row.addWidget(btn_ok)
+        layout.addLayout(btn_row)
+
+        titel_edit.setFocus()
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        titel = titel_edit.text().strip()
+        if not titel:
+            from PySide6.QtWidgets import QMessageBox as _QMB
+            _QMB.warning(self, "Titel fehlt", "Bitte einen Titel eingeben.")
+            return
+
+        datum_str = datum_edit.date().toString("dd.MM.yyyy")
+        text_str  = text_edit.toPlainText().strip()
+
+        try:
+            from functions.notizen_db import speichern
+            speichern(titel, text_str, datum_str)
+        except Exception as exc:
+            from PySide6.QtWidgets import QMessageBox as _QMB
+            _QMB.critical(self, "Fehler", f"Notiz konnte nicht gespeichert werden:\n{exc}")
+            return
+
+        self._zeige_notizen()
+        self._markiere_termine()  # Kalender-Dot aktualisieren

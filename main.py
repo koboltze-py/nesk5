@@ -32,6 +32,67 @@ from gui.main_window import MainWindow
 from gui.splash_screen import SplashScreen
 
 
+def _cleanup_onedrive_artefakte():
+    """
+    Bereinigt zwei OneDrive-Sync-Artefakte im database SQL-Ordner
+    die sonst zu OneDrive-Lösch-Dialogen ("568 Elemente löschen?") führen:
+
+    1. WAL / SHM – Hilfsdateien die SQLite beim WAL-Modus anlegt.
+       Werden per PRAGMA wal_checkpoint(TRUNCATE) sauber geleert und danach gelöscht.
+       Solange Nesk nicht läuft, enthalten sie keine ungespeicherten Daten.
+
+    2. OneDrive-Konfliktkopien – Entstehen wenn zwei PCs gleichzeitig die gleiche
+       .db-Datei bearbeitet haben. OneDrive legt dann Kopien nach dem Muster
+       'nesk3-W11-<Nummer>.db' an. Diese werden automatisch entfernt, da die
+       echten Daten bereits in nesk3.db und Turso gesichert sind.
+    """
+    try:
+        from config import DB_PATH
+        import re
+        db_dir = os.path.dirname(DB_PATH)
+
+        # ── 1. WAL-Checkpoint + WAL/SHM löschen ─────────────────────────────
+        geloescht_wal = 0
+        for wal_path in glob.glob(os.path.join(db_dir, "*.db-wal")):
+            db_path = wal_path[:-4]          # *.db-wal → *.db
+            if os.path.isfile(db_path):
+                try:
+                    con = sqlite3.connect(db_path, timeout=3)
+                    con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    con.close()
+                except Exception:
+                    pass
+            try:
+                os.remove(wal_path)
+                geloescht_wal += 1
+            except Exception:
+                pass
+        for shm_path in glob.glob(os.path.join(db_dir, "*.db-shm")):
+            try:
+                os.remove(shm_path)
+            except Exception:
+                pass
+        if geloescht_wal:
+            print(f"[OK] WAL-Bereinigung: {geloescht_wal} Datei(en) entfernt.")
+
+        # ── 2. OneDrive-Konfliktkopien löschen ──────────────────────────────
+        # Muster: <name>-<COMPUTERNAME>-<Zahl>.db  (z. B. nesk3-W11-262013-8.db)
+        konflikt_muster = re.compile(r'^.+-[A-Za-z0-9]+-\d+(-\d+)?\.db$')
+        geloescht_kf = 0
+        for fname in os.listdir(db_dir):
+            if konflikt_muster.match(fname):
+                try:
+                    os.remove(os.path.join(db_dir, fname))
+                    geloescht_kf += 1
+                except Exception:
+                    pass
+        if geloescht_kf:
+            print(f"[OK] OneDrive-Konfliktkopien entfernt: {geloescht_kf} Datei(en).")
+
+    except Exception as e:
+        print(f"[WARNUNG] OneDrive-Bereinigung fehlgeschlagen: {e}")
+
+
 def _db_startup_backup():
     """Erstellt beim Programmstart ein SQLite-Backup aller Datenbanken.
     Struktur: db_backups/YYYY-MM-DD/<name>_HHMMSS.db
@@ -293,6 +354,10 @@ def main():
     _init_done = threading.Event()
 
     def _do_init():
+        # OneDrive-Artefakte bereinigen (WAL-Dateien + Konfliktkopien)
+        splash.set_status("OneDrive-Bereinigung …")
+        _cleanup_onedrive_artefakte()
+
         # DB-Backup
         splash.set_status("Datenbank-Backup wird erstellt …")
         _db_startup_backup()
