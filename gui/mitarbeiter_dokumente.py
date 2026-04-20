@@ -2339,7 +2339,7 @@ class MitarbeiterDokumenteWidget(QWidget):
         vbtn_row.addWidget(self._versp_btn_excel)
 
         self._versp_btn_excel_mail = _btn("📧  Excel per Mail", "#5c35cc", "#4a2aa0")
-        self._versp_btn_excel_mail.setToolTip("Excel-Datei auswählen und als Outlook-Entwurf an die Station senden")
+        self._versp_btn_excel_mail.setToolTip("Excel-Datei auswählen und direkt als E-Mail in Outlook öffnen")
         self._versp_btn_excel_mail.clicked.connect(self._verspaetung_excel_mail_senden)
         vbtn_row.addWidget(self._versp_btn_excel_mail)
 
@@ -3203,7 +3203,7 @@ class MitarbeiterDokumenteWidget(QWidget):
                 QMessageBox.warning(self, "Öffnen fehlgeschlagen", str(exc))
 
     def _verspaetung_excel_mail_senden(self):
-        """Excel-Datei via Explorer auswählen und als Outlook-Entwurf an die Station senden."""
+        """Excel-Datei via Explorer auswählen und direkt als E-Mail in Outlook öffnen."""
         from PySide6.QtWidgets import QFileDialog
         from datetime import datetime as _dt
 
@@ -3300,7 +3300,7 @@ class MitarbeiterDokumenteWidget(QWidget):
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        send_btn = _btn("📧  Outlook-Entwurf erstellen", "#5c35cc", "#4a2aa0")
+        send_btn = _btn("📧  E-Mail öffnen", "#5c35cc", "#4a2aa0")
         send_btn.clicked.connect(dlg.accept)
         close_btn = _btn_light("Abbrechen")
         close_btn.clicked.connect(dlg.reject)
@@ -3319,16 +3319,11 @@ class MitarbeiterDokumenteWidget(QWidget):
                 body_text=body_edit.toPlainText(),
                 attachments=[excel_pfad],
             )
-            QMessageBox.information(
-                self, "Entwurf erstellt",
-                "Der Outlook-Entwurf wurde erfolgreich erstellt.\n"
-                "Bitte öffne Outlook und prüfe den Entwurfsordner."
-            )
         except Exception as exc:
             QMessageBox.critical(self, "Fehler beim E-Mail-Erstellen", str(exc))
 
     def _verspaetung_mail_senden(self):
-        """Outlook-Entwurf mit dem Verspätungsdokument als Anhang erstellen."""
+        """E-Mail mit dem Verspätungsdokument als Anhang direkt in Outlook öffnen."""
         e = self._versp_aktuell_eintrag()
         if not e:
             return
@@ -3386,7 +3381,7 @@ class MitarbeiterDokumenteWidget(QWidget):
 
         btns_row = QHBoxLayout()
         btns_row.setSpacing(8)
-        send_btn = _btn("📧  Outlook-Entwurf erstellen", "#5c35cc", "#4a2aa0")
+        send_btn = _btn("📧  E-Mail öffnen", "#5c35cc", "#4a2aa0")
         send_btn.clicked.connect(dlg.accept)
         close_btn = _btn_light("Abbrechen")
         close_btn.clicked.connect(dlg.reject)
@@ -3405,11 +3400,6 @@ class MitarbeiterDokumenteWidget(QWidget):
                 subject=betr_edit.text().strip(),
                 body_text=body_edit.toPlainText(),
                 attachments=[pfad],
-            )
-            QMessageBox.information(
-                self, "Entwurf erstellt",
-                "Der Outlook-Entwurf wurde erfolgreich erstellt.\n"
-                "Bitte öffne Outlook und prüfe den Entwurfsordner."
             )
         except Exception as exc:
             QMessageBox.critical(self, "Fehler beim E-Mail-Erstellen", str(exc))

@@ -407,7 +407,7 @@ class VorkommnisseWidget(QWidget):
         self._btn_ordner.clicked.connect(self._ordner_oeffnen)
         self._btn_email = QPushButton("✉️  E-Mail erstellen")
         self._btn_email.setStyleSheet(_BTN_SEC)
-        self._btn_email.setToolTip("Outlook-Entwurf mit diesem Bericht als Anhang erstellen")
+        self._btn_email.setToolTip("E-Mail direkt in Outlook öffnen")
         self._btn_email.clicked.connect(self._email_entwurf_dialog)
         hdr_layout.addWidget(self._btn_neu)
         hdr_layout.addWidget(self._btn_speichern)
@@ -969,74 +969,174 @@ class VorkommnisseWidget(QWidget):
         os.startfile(str(basis))
 
     # ── E-Mail Entwurf ─────────────────────────────────────────────────────────
+    def _ermittle_word_pfad(self, flug: str, datum: str) -> "str | None":
+        """Sucht die passende Word-Datei zum Bericht anhand Flug und Datum.
+        Gibt den Pfad zurück, oder None wenn keine gefunden wurde."""
+        import glob
+        basis = self._berichte_basis_dir()
+        sicher_flug = flug.replace("/", "-").replace(" ", "_")
+        # Datum in JJJJMMTT für den Dateinamen
+        try:
+            from datetime import datetime as _dt
+            datum_kurz = _dt.strptime(datum, "%d.%m.%Y").strftime("%d-%m-%Y")
+        except Exception:
+            datum_kurz = ""
+        # Exakter Dateiname wie beim Export (mit Datum)
+        kandidat_name = f"Vorkommnisbericht_{sicher_flug}_{datum_kurz}.docx" if datum_kurz else f"Vorkommnisbericht_{sicher_flug}.docx"
+        kandidat_pfad = self._monats_dir(datum) / kandidat_name
+        if kandidat_pfad.exists():
+            return str(kandidat_pfad)
+        # Breiteren Scan: irgendeine .docx mit dem Flugnamen
+        alle = glob.glob(str(basis / "**" / f"*{sicher_flug}*.docx"), recursive=True)
+        if alle:
+            # Neueste nehmen
+            return max(alle, key=os.path.getmtime)
+        return None
+
+    def _exportiere_word_automatisch(self, daten: dict) -> "str | None":
+        """Erstellt die Word-Datei ohne Dialog und gibt den Pfad zurück."""
+        from datetime import datetime as _dt
+        flug = daten.get("flug", "").replace("/", "-").replace(" ", "_")
+        try:
+            datum_kurz = _dt.strptime(daten.get("datum", ""), "%d.%m.%Y").strftime("%d-%m-%Y")
+        except Exception:
+            datum_kurz = ""
+        default_name = f"Vorkommnisbericht_{flug}_{datum_kurz}.docx" if datum_kurz else f"Vorkommnisbericht_{flug}.docx"
+        pfad = str(self._monats_dir(daten["datum"]) / default_name)
+        try:
+            self._erstelle_word(pfad, daten)
+            return pfad
+        except Exception as exc:
+            QMessageBox.critical(self, "Fehler beim Word-Export", str(exc))
+            return None
+
     def _email_entwurf_dialog(self):
-        """Zeigt Dialog zum Erstellen eines Outlook-Entwurfs mit optionalem Anhang."""
+        """Zeigt Dialog zum Erstellen einer E-Mail mit optionalem Anhang.
+        Die passende Word-Datei wird automatisch gefunden oder exportiert."""
         from PySide6.QtWidgets import (
-            QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+            QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
             QTextEdit, QListWidget, QListWidgetItem, QDialogButtonBox,
-            QAbstractItemView,
+            QAbstractItemView, QDateEdit,
         )
-        from PySide6.QtCore import Qt
+        from PySide6.QtCore import Qt, QDate
         import glob
 
         daten = self._sammle_daten()
         flug  = daten.get("flug", "").strip()
         datum = daten.get("datum", "").strip()
 
+        # ── Passende Word-Datei automatisch ermitteln oder erstellen ──────────
+        vorselektierter_pfad = self._ermittle_word_pfad(flug, datum)
+        if not vorselektierter_pfad and flug:
+            antwort = QMessageBox.question(
+                self, "Kein Bericht gefunden",
+                f"Für den Bericht »{flug}« wurde keine Word-Datei gefunden.\n"
+                "Soll die Datei jetzt automatisch erstellt und angehängt werden?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if antwort == QMessageBox.StandardButton.Yes:
+                vorselektierter_pfad = self._exportiere_word_automatisch(daten)
+
+        # Datum aus Formular parsen (dd.mm.yyyy), sonst heute
+        try:
+            tag, mon, jahr = datum.split(".")
+            initial_date = QDate(int(jahr), int(mon), int(tag))
+        except Exception:
+            initial_date = QDate.currentDate()
+
         dlg = QDialog(self)
-        dlg.setWindowTitle("E-Mail Entwurf erstellen")
-        dlg.setMinimumWidth(550)
+        dlg.setWindowTitle("E-Mail erstellen")
+        dlg.setMinimumWidth(560)
         layout = QVBoxLayout(dlg)
         layout.setSpacing(10)
+        layout.setContentsMargins(16, 16, 16, 12)
+
+        form = QFormLayout()
+        form.setSpacing(8)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # Datum (auswählbar)
+        datum_edit = QDateEdit()
+        datum_edit.setCalendarPopup(True)
+        datum_edit.setDate(initial_date)
+        datum_edit.setDisplayFormat("dd.MM.yyyy")
+        form.addRow("Datum:", datum_edit)
+
+        # Absender-Name
+        name_edit = QLineEdit()
+        name_edit.setPlaceholderText("Vor- und Nachname …")
+        form.addRow("Absender (Grüße):", name_edit)
 
         # Betreff
-        layout.addWidget(QLabel("<b>Betreff:</b>"))
         betreff_edit = QLineEdit()
-        betreff_edit.setText(f"Vorkommnisbericht – Flug {flug}" if flug else "Vorkommnisbericht")
-        layout.addWidget(betreff_edit)
+        form.addRow("Betreff:", betreff_edit)
+
+        layout.addLayout(form)
+
+        def _aktualisiere():
+            d = datum_edit.date().toString("dd.MM.yyyy")
+            betreff_edit.setText(
+                f"Vorkommnisbericht – Flug {flug} – {d}" if flug
+                else f"Vorkommnisbericht – {d}"
+            )
+            name = name_edit.text().strip()
+            gruss = f"\n{name}" if name else "\nDRK Erste-Hilfe-Station Flughafen Köln/Bonn"
+            text_edit.setPlainText(
+                "Hallo Lars,\n\n"
+                "anbei der Vorkommnisbericht"
+                + (f" zu Flug {flug}" if flug else "")
+                + f" vom {d}"
+                + ".\n\nBei Fragen meld dich gerne.\n\n"
+                "Viele Grüße"
+                + gruss
+            )
+
+        datum_edit.dateChanged.connect(lambda _: _aktualisiere())
+        name_edit.textChanged.connect(lambda _: _aktualisiere())
 
         # Mailtext
         layout.addWidget(QLabel("<b>Mailtext:</b>"))
         text_edit = QTextEdit()
-        text_edit.setFixedHeight(120)
-        text_leer = not flug and not datum
-        mail_body = (
-            f"Sehr geehrte Damen und Herren,\n\n"
-            f"im Anhang finden Sie den Vorkommnisbericht"
-            + (f" zu Flug {flug}" if flug else "")
-            + (f" vom {datum}" if datum else "")
-            + f".\n\nBei Rückfragen stehen wir gerne zur Verfügung.\n\n"
-            f"Mit freundlichen Grüßen\nDRK Erste-Hilfe-Station Flughafen Köln/Bonn"
-        )
-        text_edit.setPlainText(mail_body)
+        text_edit.setFixedHeight(140)
         layout.addWidget(text_edit)
+        _aktualisiere()  # Initialtext setzen
 
         # Anhang-Auswahl aus Berichte-Ordner
-        layout.addWidget(QLabel("<b>Word-Anhang auswählen</b> (optional, aus Berichte-Ordner):"))
+        if vorselektierter_pfad:
+            anhang_lbl_text = "<b>Word-Anhang</b> (automatisch ausgewählt, optional ändern):"
+        else:
+            anhang_lbl_text = "<b>Word-Anhang auswählen</b> (optional, aus Berichte-Ordner):"
+        layout.addWidget(QLabel(anhang_lbl_text))
         anhang_liste = QListWidget()
         anhang_liste.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        anhang_liste.setFixedHeight(150)
+        anhang_liste.setFixedHeight(140)
 
         basis = self._berichte_basis_dir()
         docx_dateien = sorted(
             glob.glob(str(basis / "**" / "*.docx"), recursive=True),
             key=os.path.getmtime, reverse=True
         )
+        vorsel_item = None
         for pfad in docx_dateien:
             item = QListWidgetItem(os.path.basename(pfad))
             item.setData(Qt.ItemDataRole.UserRole, pfad)
             anhang_liste.addItem(item)
+            if vorselektierter_pfad and os.path.normcase(pfad) == os.path.normcase(vorselektierter_pfad):
+                vorsel_item = item
 
         if not docx_dateien:
             anhang_liste.addItem("(Keine Berichte im Berichte-Ordner gefunden)")
             anhang_liste.setEnabled(False)
+        elif vorsel_item:
+            anhang_liste.setCurrentItem(vorsel_item)
+            anhang_liste.scrollToItem(vorsel_item)
 
         layout.addWidget(anhang_liste)
 
         # Buttons
         btn_box = QDialogButtonBox()
-        btn_senden = btn_box.addButton("✉️  Entwurf erstellen", QDialogButtonBox.ButtonRole.AcceptRole)
-        btn_ab     = btn_box.addButton("Abbrechen",            QDialogButtonBox.ButtonRole.RejectRole)
+        btn_senden = btn_box.addButton("✉️  E-Mail öffnen", QDialogButtonBox.ButtonRole.AcceptRole)
+        btn_ab     = btn_box.addButton("Abbrechen",         QDialogButtonBox.ButtonRole.RejectRole)
         btn_box.rejected.connect(dlg.reject)
         layout.addWidget(btn_box)
 
@@ -1056,21 +1156,25 @@ class VorkommnisseWidget(QWidget):
         dlg.exec()
 
     def _erstelle_outlook_entwurf(self, betreff: str, mailtext: str, anhang_pfad: str | None):
-        """Erstellt einen Outlook-Entwurf mit optionalem Word-Anhang."""
+        """Öffnet eine neue E-Mail direkt in Outlook zur Bearbeitung und zum Versand."""
         try:
             import win32com.client
-            outlook = win32com.client.Dispatch("Outlook.Application")
+            try:
+                outlook = win32com.client.GetActiveObject("Outlook.Application")
+            except Exception:
+                outlook = win32com.client.Dispatch("Outlook.Application")
             mail = outlook.CreateItem(0)  # 0 = olMailItem
+            mail.Display()               # Outlook lädt Standardsignatur
+            signature = mail.HTMLBody
             mail.Subject = betreff
-            mail.Body    = mailtext
+            html_text = mailtext.replace("\n", "<br>")
+            mail.HTMLBody = (
+                f"<html><body style='font-family:Calibri,Arial,sans-serif;font-size:11pt;'>"
+                f"<div>{html_text}</div>"
+                f"</body></html>"
+            ) + signature
             if anhang_pfad and os.path.isfile(anhang_pfad):
                 mail.Attachments.Add(os.path.abspath(anhang_pfad))
-            mail.Save()  # Speichert als Entwurf
-            QMessageBox.information(
-                self, "Entwurf gespeichert",
-                "Der E-Mail-Entwurf wurde in Outlook gespeichert.\n"
-                "Du findest ihn im Ordner \"Entwürfe\"."
-            )
         except Exception as exc:
             QMessageBox.critical(self, "Outlook-Fehler", str(exc))
 
@@ -1080,7 +1184,13 @@ class VorkommnisseWidget(QWidget):
             QMessageBox.warning(self, "Fehler", "Bitte Flugnummer eingeben.")
             return
 
-        default_name = f"Vorkommnisbericht_{daten['flug'].replace('/', '-')}.docx"
+        try:
+            from datetime import datetime as _dt
+            datum_kurz = _dt.strptime(daten["datum"], "%d.%m.%Y").strftime("%d-%m-%Y")
+        except Exception:
+            datum_kurz = ""
+        flug_sicher = daten['flug'].replace('/', '-').replace(' ', '_')
+        default_name = f"Vorkommnisbericht_{flug_sicher}_{datum_kurz}.docx" if datum_kurz else f"Vorkommnisbericht_{flug_sicher}.docx"
         # Monatsordner basierend auf dem Datum des Vorkommnisses
         speicher_dir = self._monats_dir(daten["datum"])
         pfad, _ = QFileDialog.getSaveFileName(

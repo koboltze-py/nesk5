@@ -1,6 +1,6 @@
 """
 Mail-Funktionen – Outlook-Integration
-Erstellt E-Mail-Entwürfe über win32com
+Öffnet E-Mails direkt in Outlook zur Bearbeitung und zum Versand
 """
 from __future__ import annotations
 from pathlib import Path
@@ -16,7 +16,7 @@ def create_outlook_draft(
     logo_path: str | None = None,
 ) -> bool:
     """
-    Erstellt einen Outlook-Entwurf und öffnet ihn.
+    Öffnet eine neue E-Mail direkt in Outlook zur Bearbeitung und zum Versand.
 
     Parameters
     ----------
