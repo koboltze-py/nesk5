@@ -1433,7 +1433,7 @@ class _MitarbeiterListeWidget(QWidget):
         ("EH",                 "EH"),
         ("Refresher",          "Ref."),
         ("ZÜP",                "ZÜP"),
-        ("Aerztl_Untersuchung","Ärztl."),
+        ("Vorfeldschulung",    "Vorfeld"),
         ("Sicherheitsschulung","Sich.Sch."),
         ("PRM_Schulung",       "PRM-Sch."),
     ]
