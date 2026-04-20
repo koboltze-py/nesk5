@@ -3,8 +3,15 @@
 **DRK Flughafen Köln – Erste-Hilfe-Station**  
 Dienstplan-Verwaltung, Stärkemeldung und Mitarbeiterverwaltung
 
-**Version:** v3.8.0 (02.04.2026)  
+**Version:** v3.9.0 (15.04.2026)  
 **Module:** Dashboard · Mitarbeiter · Dienstliches · Aufgaben Tag/Nacht · Dienstplan · Übergabe · Fahrzeuge · Code 19 · **Telefonnummern** · Backup · Einstellungen · Hilfe · Passagieranfragen · **Schulungen** · **Sanitätsmaterial**
+
+### Neu in v3.9.0
+- **Schulungen – Informiert-Status**: Neue Spalten `informiert` + `informiert_am` in der DB; Checkbox + Datumsfeld im Bearbeiten-Dialog; Spalte „Informiert" in der Mitarbeiter-Detailansicht
+- **Vorfeldschulung** (neu): Direkter Ablauf, 12-Monats-Intervall, Warnungen 3/2/1 Monat vor Ablauf
+- **Sicherheitsschulung** (neu): Intervall-Ablauf, 5-Jahres-Zyklus
+- **Monatsfilter-Default**: Einsätze- und Patienten-Tab wählen beim ersten Öffnen automatisch aktuellen Monat/Jahr vor
+- **Excel-Datumssortierung**: Datum-Spalten in allen Excel-Exporten (Bericht, Einsätze, Patienten, Verspätungen) als echte Excel-Datumswerte → korrekte Sortierung nach vollem Datum statt nur nach Tag
 
 ### Neu in v3.8.0
 - **Sanitätsmaterial Verbrauch – Excel-Export**: Export gibt jetzt `.xlsx` statt CSV aus; formatierte Darstellung nach Datum gruppiert, Datums-Trennzeilen, Gesamtübersicht aller verbrauchten Artikel alphabetisch mit Menge; Notiz-Spalte ergänzt

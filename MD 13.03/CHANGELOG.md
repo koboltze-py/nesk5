@@ -5,6 +5,35 @@ Format: `[Datum] Beschreibung – betroffene Dateien`
 
 ---
 
+## 15.04.2026 – v3.9.0
+
+### Schulungen – Informiert-Status, neue Schulungstypen, Monatsfilter-Default
+
+#### `functions/schulungen_db.py`
+- **Informiert-Spalten**: `informiert` (BOOLEAN) und `informiert_am` (TEXT) in `schulungseintraege` per Migration ergänzt
+- **Vorfeldschulung** neu in `SCHULUNGSTYPEN_CFG`: `ablauf="direkt"`, Intervall 12 Monate, Warnungen bei 3/2/1 Monat
+- **Sicherheitsschulung** neu in `SCHULUNGSTYPEN_CFG`: `ablauf="intervall"`, 5 Jahre
+
+#### `gui/schulungen_kalender.py`
+- **`_SchulungBearbeitenDialog`**: Checkbox „Informiert" + Datumsfeld „informiert am" + 🗑-Button zum Löschen des Datums
+- **`_MitarbeiterDetailDialog`**: Spalte „Informiert" (Spalte 4) in der Schulungsübersicht
+- **`_MATRIX`**: Vorfeldschulung und Sicherheitsschulung ergänzt
+- **`_lade_typen()`**: Shortname `"Vorfeld"` für Vorfeldschulung
+
+#### `gui/dienstliches.py`
+- **Einsätze-Tab**: Monatsfilter wählt beim ersten Laden automatisch den aktuellen Monat/Jahr
+- **Patienten-Tab**: ebenso
+
+### Excel-Exporte – Datumssortierung
+
+#### `gui/bericht.py`, `gui/dienstliches.py`, `gui/mitarbeiter_dokumente.py`
+- **Datum-Spalten als echte Excel-Datumswerte**: statt Text-String wird `datetime.date`-Objekt in die Zelle geschrieben → Excel speichert als serielle Zahl → korrekte Sortierung nach vollem Datum
+- `number_format = "DD.MM.YYYY"` für deutschen Anzeigeformat
+- `_d()`-Helper in jeder Export-Funktion (DD.MM.YYYY → date-Objekt)
+- Betrifft: Verspätungen (`_verspaetungen_als_excel_speichern`), Einsätze (`export_einsaetze_excel`), Patienten (`export_patienten_excel`), Bericht (`_erstelle_bericht_excel`)
+
+---
+
 ## 02.04.2026 – v3.8.0
 
 ### Sanitätsmaterial-Verbrauch – Excel-Export statt CSV
