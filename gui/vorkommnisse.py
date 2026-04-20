@@ -168,10 +168,13 @@ class _EditTable(QWidget):
         headers: list[str],
         combo_columns: dict[int, list[str]] | None = None,
         column_widths: dict[int, int] | None = None,
+        conditional_columns: dict[int, tuple[int, list[str]]] | None = None,
         parent=None,
     ):
         super().__init__(parent)
         self._combo_columns = combo_columns or {}
+        # conditional_columns: {ziel_col: (quell_col, [aktivierende Werte])}
+        self._conditional_columns = conditional_columns or {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -276,15 +279,35 @@ class _EditTable(QWidget):
     def _add_row(self):
         row = self._table.rowCount()
         self._table.insertRow(row)
+        # Ziel-Spalten die standardmäßig deaktiviert starten
+        conditional_targets = {tc for tc in self._conditional_columns}
         for col in range(self._table.columnCount()):
             if col in self._combo_columns:
                 combo = QComboBox()
                 combo.addItems(self._combo_columns[col])
+                if col in conditional_targets:
+                    combo.setEnabled(False)
                 self._table.setCellWidget(row, col, combo)
             else:
                 self._table.setItem(row, col, QTableWidgetItem(""))
+        # Quell-Combos verbinden
+        for target_col, (src_col, enabled_vals) in self._conditional_columns.items():
+            src_w = self._table.cellWidget(row, src_col)
+            if isinstance(src_w, QComboBox):
+                src_w.currentTextChanged.connect(
+                    lambda text, r=row, tc=target_col, ev=enabled_vals:
+                        self._update_conditional(r, tc, text, ev)
+                )
         self._table.scrollToBottom()
         self._table.selectRow(row)
+
+    def _update_conditional(self, row: int, target_col: int, text: str, enabled_vals: list[str]):
+        widget = self._table.cellWidget(row, target_col)
+        if widget:
+            enabled = text in enabled_vals
+            widget.setEnabled(enabled)
+            if not enabled:
+                widget.setCurrentIndex(0)
 
     def _del_row(self):
         rows = sorted(
@@ -310,6 +333,7 @@ class _EditTable(QWidget):
 
     def set_data(self, data: list[list[str]]):
         self._table.setRowCount(0)
+        conditional_targets = {tc for tc in self._conditional_columns}
         for row_data in data:
             row = self._table.rowCount()
             self._table.insertRow(row)
@@ -320,9 +344,21 @@ class _EditTable(QWidget):
                     idx = combo.findText(value)
                     if idx >= 0:
                         combo.setCurrentIndex(idx)
+                    if col in conditional_targets:
+                        combo.setEnabled(False)  # vorerst; wird unten per Signal gesetzt
                     self._table.setCellWidget(row, col, combo)
                 else:
                     self._table.setItem(row, col, QTableWidgetItem(value))
+            # Quell-Combos verbinden und initialen Zustand setzen
+            for target_col, (src_col, enabled_vals) in self._conditional_columns.items():
+                src_w = self._table.cellWidget(row, src_col)
+                if isinstance(src_w, QComboBox):
+                    src_w.currentTextChanged.connect(
+                        lambda text, r=row, tc=target_col, ev=enabled_vals:
+                            self._update_conditional(r, tc, text, ev)
+                    )
+                    # Initialen Zustand anwenden
+                    self._update_conditional(row, target_col, src_w.currentText(), enabled_vals)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -369,10 +405,15 @@ class VorkommnisseWidget(QWidget):
         self._btn_ordner.setStyleSheet(_BTN_SEC)
         self._btn_ordner.setToolTip("Ordner mit allen Vorkommnis-Berichten öffnen")
         self._btn_ordner.clicked.connect(self._ordner_oeffnen)
+        self._btn_email = QPushButton("✉️  E-Mail erstellen")
+        self._btn_email.setStyleSheet(_BTN_SEC)
+        self._btn_email.setToolTip("Outlook-Entwurf mit diesem Bericht als Anhang erstellen")
+        self._btn_email.clicked.connect(self._email_entwurf_dialog)
         hdr_layout.addWidget(self._btn_neu)
         hdr_layout.addWidget(self._btn_speichern)
         hdr_layout.addWidget(self._btn_export)
         hdr_layout.addWidget(self._btn_ordner)
+        hdr_layout.addWidget(self._btn_email)
         root.addWidget(header)
 
         # Tab-Widget
@@ -412,14 +453,18 @@ class VorkommnisseWidget(QWidget):
 
         c_layout.addWidget(self._build_grunddaten())
 
-        grp_pax = QGroupBox("1. Betroffene Passagiere")
+        grp_pax = QGroupBox("1. Betroffene Personen")
         grp_pax.setStyleSheet(_GROUP_STYLE)
         pax_layout = QVBoxLayout(grp_pax)
         pax_layout.setContentsMargins(10, 14, 10, 10)
         self._pax_table = _EditTable(
-            headers=["Passagier (Name, Vorname)", "Kategorie", "Anmerkung"],
-            combo_columns={1: PRM_KATEGORIEN},
-            column_widths={0: 220, 1: 110},
+            headers=["Person (Name, Vorname)", "Typ", "Kategorie", "Anmerkung"],
+            combo_columns={
+                1: ["Passagier", "PRM Passagier", "Patient", "Mitarbeiter", "Sonstige"],
+                2: PRM_KATEGORIEN,
+            },
+            column_widths={0: 200, 1: 130, 2: 110},
+            conditional_columns={2: (1, ["PRM Passagier"])},
         )
         pax_layout.addWidget(self._pax_table)
         c_layout.addWidget(grp_pax)
@@ -607,9 +652,9 @@ class VorkommnisseWidget(QWidget):
         style = _LINE_EDIT_STYLE
 
         self._flug_edit = QLineEdit()
-        self._flug_edit.setPlaceholderText("z. B. XQ983")
+        self._flug_edit.setPlaceholderText("z. B. XQ983 / PRM-Betreuung")
         self._flug_edit.setStyleSheet(style)
-        layout.addRow("Flugnummer:", self._flug_edit)
+        layout.addRow("Flugnummer / Vorkommnis:", self._flug_edit)
 
         self._typ_combo = QComboBox()
         self._typ_combo.addItems(VORKOMMNIS_TYPEN)
@@ -923,6 +968,112 @@ class VorkommnisseWidget(QWidget):
         basis.mkdir(parents=True, exist_ok=True)
         os.startfile(str(basis))
 
+    # ── E-Mail Entwurf ─────────────────────────────────────────────────────────
+    def _email_entwurf_dialog(self):
+        """Zeigt Dialog zum Erstellen eines Outlook-Entwurfs mit optionalem Anhang."""
+        from PySide6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+            QTextEdit, QListWidget, QListWidgetItem, QDialogButtonBox,
+            QAbstractItemView,
+        )
+        from PySide6.QtCore import Qt
+        import glob
+
+        daten = self._sammle_daten()
+        flug  = daten.get("flug", "").strip()
+        datum = daten.get("datum", "").strip()
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("E-Mail Entwurf erstellen")
+        dlg.setMinimumWidth(550)
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(10)
+
+        # Betreff
+        layout.addWidget(QLabel("<b>Betreff:</b>"))
+        betreff_edit = QLineEdit()
+        betreff_edit.setText(f"Vorkommnisbericht – Flug {flug}" if flug else "Vorkommnisbericht")
+        layout.addWidget(betreff_edit)
+
+        # Mailtext
+        layout.addWidget(QLabel("<b>Mailtext:</b>"))
+        text_edit = QTextEdit()
+        text_edit.setFixedHeight(120)
+        text_leer = not flug and not datum
+        mail_body = (
+            f"Sehr geehrte Damen und Herren,\n\n"
+            f"im Anhang finden Sie den Vorkommnisbericht"
+            + (f" zu Flug {flug}" if flug else "")
+            + (f" vom {datum}" if datum else "")
+            + f".\n\nBei Rückfragen stehen wir gerne zur Verfügung.\n\n"
+            f"Mit freundlichen Grüßen\nDRK Erste-Hilfe-Station Flughafen Köln/Bonn"
+        )
+        text_edit.setPlainText(mail_body)
+        layout.addWidget(text_edit)
+
+        # Anhang-Auswahl aus Berichte-Ordner
+        layout.addWidget(QLabel("<b>Word-Anhang auswählen</b> (optional, aus Berichte-Ordner):"))
+        anhang_liste = QListWidget()
+        anhang_liste.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        anhang_liste.setFixedHeight(150)
+
+        basis = self._berichte_basis_dir()
+        docx_dateien = sorted(
+            glob.glob(str(basis / "**" / "*.docx"), recursive=True),
+            key=os.path.getmtime, reverse=True
+        )
+        for pfad in docx_dateien:
+            item = QListWidgetItem(os.path.basename(pfad))
+            item.setData(Qt.ItemDataRole.UserRole, pfad)
+            anhang_liste.addItem(item)
+
+        if not docx_dateien:
+            anhang_liste.addItem("(Keine Berichte im Berichte-Ordner gefunden)")
+            anhang_liste.setEnabled(False)
+
+        layout.addWidget(anhang_liste)
+
+        # Buttons
+        btn_box = QDialogButtonBox()
+        btn_senden = btn_box.addButton("✉️  Entwurf erstellen", QDialogButtonBox.ButtonRole.AcceptRole)
+        btn_ab     = btn_box.addButton("Abbrechen",            QDialogButtonBox.ButtonRole.RejectRole)
+        btn_box.rejected.connect(dlg.reject)
+        layout.addWidget(btn_box)
+
+        def _erstelle():
+            betreff  = betreff_edit.text().strip()
+            mailtext = text_edit.toPlainText()
+            anhang_pfad = None
+            sel = anhang_liste.selectedItems()
+            if sel:
+                pfad_data = sel[0].data(Qt.ItemDataRole.UserRole)
+                if pfad_data and os.path.isfile(pfad_data):
+                    anhang_pfad = pfad_data
+            dlg.accept()
+            self._erstelle_outlook_entwurf(betreff, mailtext, anhang_pfad)
+
+        btn_senden.clicked.connect(_erstelle)
+        dlg.exec()
+
+    def _erstelle_outlook_entwurf(self, betreff: str, mailtext: str, anhang_pfad: str | None):
+        """Erstellt einen Outlook-Entwurf mit optionalem Word-Anhang."""
+        try:
+            import win32com.client
+            outlook = win32com.client.Dispatch("Outlook.Application")
+            mail = outlook.CreateItem(0)  # 0 = olMailItem
+            mail.Subject = betreff
+            mail.Body    = mailtext
+            if anhang_pfad and os.path.isfile(anhang_pfad):
+                mail.Attachments.Add(os.path.abspath(anhang_pfad))
+            mail.Save()  # Speichert als Entwurf
+            QMessageBox.information(
+                self, "Entwurf gespeichert",
+                "Der E-Mail-Entwurf wurde in Outlook gespeichert.\n"
+                "Du findest ihn im Ordner \"Entwürfe\"."
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Outlook-Fehler", str(exc))
+
     def _export_word(self):
         daten = self._sammle_daten()
         if not daten["flug"]:
@@ -1000,21 +1151,21 @@ class VorkommnisseWidget(QWidget):
             tbl_grund.rows[i].cells[0].paragraphs[0].runs[0].bold = True
         doc.add_paragraph()
 
-        # ── 1. Passagiere ─────────────────────────────────────────────────────
-        doc.add_heading("1. Betroffene Passagiere", level=2)
+        # ── 1. Betroffene Personen ────────────────────────────────────────────
+        doc.add_heading("1. Betroffene Personen", level=2)
         if d["passagiere"]:
-            tbl_pax = doc.add_table(rows=1, cols=3)
+            tbl_pax = doc.add_table(rows=1, cols=4)
             tbl_pax.style = "Table Grid"
-            for i, hdr in enumerate(["Passagier", "Kategorie", "Anmerkung"]):
+            for i, hdr in enumerate(["Person", "Typ", "Kategorie", "Anmerkung"]):
                 cell = tbl_pax.rows[0].cells[i]
                 cell.text = hdr
                 cell.paragraphs[0].runs[0].bold = True
             for row_data in d["passagiere"]:
                 row = tbl_pax.add_row()
-                for i, val in enumerate(row_data[:3]):
+                for i, val in enumerate(row_data[:4]):
                     row.cells[i].text = val
         else:
-            doc.add_paragraph("(keine Passagiere erfasst)")
+            doc.add_paragraph("(keine Personen erfasst)")
         doc.add_paragraph()
 
         # ── 2. Personal ───────────────────────────────────────────────────────
