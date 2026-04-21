@@ -926,8 +926,7 @@ class BerichtWidget(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if antwort == QMessageBox.StandardButton.Yes:
-            import subprocess
-            subprocess.Popen(["explorer", ziel], shell=False)
+            os.startfile(ziel)
 
         return ziel
 
@@ -1003,6 +1002,7 @@ class BerichtWidget(QWidget):
             db = SanmatDB()
             sanmat = db.get_buchungen(
                 limit=100_000,
+                typ="verbrauch",
                 datum_von=zr["san_von"],
                 datum_bis=zr["san_bis"],
             )
@@ -1063,8 +1063,7 @@ class BerichtWidget(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if antwort == QMessageBox.StandardButton.Yes:
-            import subprocess
-            subprocess.Popen(["explorer", ziel], shell=False)
+            os.startfile(ziel)
 
         # ── Per E-Mail versenden? ─────────────────────────────────────────────
         antwort_mail = QMessageBox.question(
@@ -1422,15 +1421,13 @@ def _erstelle_abrechnung_excel(
         ws_san,
         f"🧰  Sanmaterial  ({len(sanmat_sorted)} Einträge)",
         zeitraum_sanmat,
-        ["Nr.", "Datum", "Artikel", "Menge", "Typ", "Von", "Bemerkung"],
+        ["Nr.", "Datum", "Artikel", "Menge", "Bemerkung"],
         [
             [
                 idx,
                 _d_iso(e.get("datum", "")),
                 e.get("artikel_name", "") or "",
                 e.get("menge", "") or "",
-                e.get("typ", "") or "",
-                e.get("von", "") or "",
                 e.get("bemerkung", "") or "",
             ]
             for idx, e in enumerate(sanmat_sorted, 1)
