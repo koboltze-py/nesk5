@@ -24,6 +24,9 @@ from PySide6.QtGui import QFont, QColor
 from config import BASE_DIR, FIORI_BLUE, FIORI_TEXT
 
 _BERICHT_DIR = os.path.join(BASE_DIR, "Daten", "Berichte")
+_ABRECHNUNG_KOPIE_DIR = os.path.join(
+    BASE_DIR, "Daten", "Berichte", "Abrechnung Sanmat Pat Einsätze"
+)
 
 # ─── Farben ───────────────────────────────────────────────────────────────────
 _FARBEN = {
@@ -727,6 +730,31 @@ class BerichtWidget(QWidget):
 
         rechte_layout.addLayout(btn_row)
 
+        # ── Trennlinie + Abrechnung-Button ───────────────────────────────────
+        abrech_sep = QFrame()
+        abrech_sep.setFrameShape(QFrame.Shape.HLine)
+        abrech_sep.setStyleSheet("color:#ddd;margin:6px 0;")
+        rechte_layout.addWidget(abrech_sep)
+
+        abrech_lbl = QLabel("Abrechnung (Pat. auf Station · Einsätze · Sanmaterial):")
+        abrech_lbl.setStyleSheet(f"color:{FIORI_TEXT};font-size:11px;font-weight:bold;")
+        rechte_layout.addWidget(abrech_lbl)
+
+        abrech_row = QHBoxLayout()
+        abrech_row.setSpacing(8)
+        abrech_row.addStretch()
+
+        self._btn_abrechnung = _btn(
+            "📋  Abrechnung erstellen", "#E65100", "#BF360C"
+        )
+        self._btn_abrechnung.setToolTip(
+            "Excel mit 3 Tabs (Pat., Einsätze, Sanmat) erstellen und optional per Mail versenden"
+        )
+        self._btn_abrechnung.clicked.connect(self._abrechnung_erstellen)
+        abrech_row.addWidget(self._btn_abrechnung)
+
+        rechte_layout.addLayout(abrech_row)
+
         haupt.addWidget(rechte_seite, 1)
         outer.addLayout(haupt, 1)
 
@@ -898,8 +926,7 @@ class BerichtWidget(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if antwort == QMessageBox.StandardButton.Yes:
-            import subprocess
-            subprocess.Popen(["explorer", ziel], shell=False)
+            os.startfile(ziel)
 
         return ziel
 
@@ -950,3 +977,466 @@ class BerichtWidget(QWidget):
                 f"Outlook-Entwurf konnte nicht erstellt werden:\n{exc}\n\n"
                 f"Die Excel-Datei wurde trotzdem gespeichert:\n{ziel}"
             )
+
+    # ── Abrechnung erstellen ──────────────────────────────────────────────────
+    def _abrechnung_erstellen(self):
+        """Öffnet den Abrechnung-Dialog und exportiert eine Excel-Datei mit 3 Tabs."""
+        dlg = _AbrechnungZeitraumDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        zr = dlg.get_zeitraeume()
+
+        # ── Daten laden ───────────────────────────────────────────────────────
+        from gui.splash_screen import _mit_ladeanimation
+
+        def _lade_alle():
+            from gui.dienstliches import lade_patienten, lade_einsaetze
+            from database.sanmat_db import SanmatDB
+
+            pat_alle  = lade_patienten()
+            pat = _filter_nach_datum(pat_alle, zr["pat_von"], zr["pat_bis"])
+
+            eins_alle = lade_einsaetze()
+            eins = _filter_nach_datum(eins_alle, zr["eins_von"], zr["eins_bis"])
+
+            db = SanmatDB()
+            sanmat = db.get_buchungen(
+                limit=100_000,
+                typ="verbrauch",
+                datum_von=zr["san_von"],
+                datum_bis=zr["san_bis"],
+            )
+            return pat, eins, sanmat
+
+        ergebnis, exc = _mit_ladeanimation(self, "Daten werden geladen …", _lade_alle)
+        if exc is not None or ergebnis is None:
+            QMessageBox.critical(self, "Ladefehler", f"Daten konnten nicht geladen werden:\n{exc}")
+            return
+        pat_eintr, eins_eintr, sanmat_eintr = ergebnis
+
+        # ── Speicherort wählen ────────────────────────────────────────────────
+        heute = datetime.now().strftime("%Y-%m-%d")
+        vorschlag = os.path.join(
+            _ABRECHNUNG_KOPIE_DIR, f"Abrechnung_{heute}.xlsx"
+        )
+        ziel, _ = QFileDialog.getSaveFileName(
+            self, "Abrechnung speichern", vorschlag, "Excel-Dateien (*.xlsx)"
+        )
+        if not ziel:
+            return
+
+        # ── Excel erstellen ───────────────────────────────────────────────────
+        try:
+            _erstelle_abrechnung_excel(
+                pat_eintr, eins_eintr, sanmat_eintr,
+                zr["pat_label"], zr["eins_label"], zr["san_label"],
+                ziel,
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Export-Fehler", f"Fehler beim Erstellen der Excel:\n{e}")
+            return
+
+        # ── Kopie in Abrechnung-Ordner speichern (falls abweichend) ──────────
+        kopie_pfad = os.path.join(
+            _ABRECHNUNG_KOPIE_DIR, os.path.basename(ziel)
+        )
+        if os.path.normpath(ziel) != os.path.normpath(kopie_pfad):
+            try:
+                import shutil
+                os.makedirs(_ABRECHNUNG_KOPIE_DIR, exist_ok=True)
+                shutil.copy2(ziel, kopie_pfad)
+            except Exception as e:
+                QMessageBox.warning(
+                    self, "Kopie nicht möglich",
+                    f"Hauptdatei wurde gespeichert, aber Kopie schlug fehl:\n{e}"
+                )
+
+        # ── Ergebnis-Dialog ───────────────────────────────────────────────────
+        msg = (
+            f"Abrechnung gespeichert:\n{ziel}\n\n"
+            f"Kopie: {kopie_pfad}\n\n"
+            f"Pat.: {len(pat_eintr)}  |  Einsätze: {len(eins_eintr)}  |  Sanmat: {len(sanmat_eintr)}\n\n"
+            "Datei jetzt öffnen?"
+        )
+        antwort = QMessageBox.question(
+            self, "Abrechnung gespeichert", msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if antwort == QMessageBox.StandardButton.Yes:
+            os.startfile(ziel)
+
+        # ── Per E-Mail versenden? ─────────────────────────────────────────────
+        antwort_mail = QMessageBox.question(
+            self, "E-Mail senden?",
+            "Soll die Abrechnung auch per E-Mail versendet werden?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if antwort_mail != QMessageBox.StandardButton.Yes:
+            return
+
+        namen = ["Pat. auf Station", "Einsätze", "Sanmaterial"]
+        dlg_mail = _BerichtMailDialog(ziel, namen, self)
+        dlg_mail.setWindowTitle("📧  Abrechnung per E-Mail senden")
+        if dlg_mail.exec() != QDialog.DialogCode.Accepted:
+            return
+        empfaenger, betreff, body = dlg_mail.get_daten()
+        try:
+            from functions.mail_functions import create_outlook_draft
+            logo = os.path.join(BASE_DIR, "Daten", "Email", "Logo.jpg")
+            create_outlook_draft(
+                to=empfaenger,
+                subject=betreff,
+                body_text=body,
+                attachment_path=ziel,
+                logo_path=logo if os.path.isfile(logo) else None,
+            )
+            QMessageBox.information(
+                self, "Outlook geöffnet",
+                "Der Outlook-Entwurf wurde geöffnet.\n"
+                "Bitte prüfen und manuell absenden."
+            )
+        except Exception as exc:
+            QMessageBox.critical(
+                self, "E-Mail-Fehler",
+                f"Outlook-Entwurf konnte nicht erstellt werden:\n{exc}\n\n"
+                f"Die Abrechnung wurde trotzdem gespeichert:\n{ziel}"
+            )
+
+
+# ─── Abrechnung: Zeitraum-Dialog ──────────────────────────────────────────────
+class _AbrechnungZeitraumDialog(QDialog):
+    """Dialog: Zeiträume für Abrechnung (Pat., Einsätze, Sanmaterial) einstellen."""
+
+    _GRP = (
+        "QGroupBox{{border:2px solid {ak};border-radius:6px;margin-top:10px;"
+        "background:{bg};}}"
+        "QGroupBox::title{{subcontrol-origin:margin;left:12px;"
+        "padding:2px 8px;color:{ak};font-weight:bold;}}"
+    )
+    _EDIT = (
+        "QDateEdit{border:1px solid #ccc;border-radius:4px;"
+        "padding:3px;font-size:12px;background:white;}"
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("📋  Abrechnung – Zeiträume einstellen")
+        self.setMinimumWidth(420)
+        self.resize(460, 460)
+        self._build_ui()
+
+    def _grp_style(self, ak: str, bg: str) -> str:
+        return self._GRP.format(ak=ak, bg=bg)
+
+    def _make_date_section(
+        self, titel: str, ak: str, bg: str, layout: QVBoxLayout
+    ) -> tuple["QDateEdit", "QDateEdit"]:
+        heute = date.today()
+        von_default = QDate(heute.year, heute.month, 1)
+        bis_default = QDate.currentDate()
+
+        grp = QGroupBox(f"  {titel}")
+        grp.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        grp.setStyleSheet(self._grp_style(ak, bg))
+        fl = QFormLayout(grp)
+        fl.setSpacing(6)
+        fl.setContentsMargins(10, 14, 10, 8)
+
+        von = QDateEdit()
+        von.setCalendarPopup(True)
+        von.setDisplayFormat("dd.MM.yyyy")
+        von.setDate(von_default)
+        von.setStyleSheet(self._EDIT)
+        fl.addRow("Von:", von)
+
+        bis = QDateEdit()
+        bis.setCalendarPopup(True)
+        bis.setDisplayFormat("dd.MM.yyyy")
+        bis.setDate(bis_default)
+        bis.setStyleSheet(self._EDIT)
+        fl.addRow("Bis:", bis)
+
+        layout.addWidget(grp)
+        return von, bis
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        info = QLabel("Bitte den Zeitraum für jede Übersicht festlegen:")
+        info.setStyleSheet("font-size:12px;color:#555;")
+        layout.addWidget(info)
+
+        self._pat_von,  self._pat_bis  = self._make_date_section(
+            "🏥  Pat. auf Station", "#B71C1C", "#FFEBEE", layout
+        )
+        self._eins_von, self._eins_bis = self._make_date_section(
+            "🚑  Einsätze",         "#2E7D32", "#E8F5E9", layout
+        )
+        self._san_von,  self._san_bis  = self._make_date_section(
+            "🧰  Sanmaterial",      "#E65100", "#FFF3E0", layout
+        )
+
+        layout.addStretch()
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText("✓  Weiter")
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    @staticmethod
+    def _qd_to_date(qd: QDate) -> date:
+        return date(qd.year(), qd.month(), qd.day())
+
+    @staticmethod
+    def _qd_to_iso(qd: QDate) -> str:
+        return qd.toString("yyyy-MM-dd")
+
+    @staticmethod
+    def _qd_label(von: QDate, bis: QDate) -> str:
+        return (
+            f"{von.toString('dd.MM.yyyy')} – {bis.toString('dd.MM.yyyy')}"
+        )
+
+    def get_zeitraeume(self) -> dict:
+        return {
+            "pat_von":    self._qd_to_date(self._pat_von.date()),
+            "pat_bis":    self._qd_to_date(self._pat_bis.date()),
+            "eins_von":   self._qd_to_date(self._eins_von.date()),
+            "eins_bis":   self._qd_to_date(self._eins_bis.date()),
+            "san_von":    self._qd_to_iso(self._san_von.date()),
+            "san_bis":    self._qd_to_iso(self._san_bis.date()),
+            "pat_label":  self._qd_label(self._pat_von.date(),  self._pat_bis.date()),
+            "eins_label": self._qd_label(self._eins_von.date(), self._eins_bis.date()),
+            "san_label":  self._qd_label(self._san_von.date(),  self._san_bis.date()),
+        }
+
+
+# ─── Abrechnung: Excel-Erstellung ─────────────────────────────────────────────
+def _erstelle_abrechnung_excel(
+    pat_eintr: list[dict],
+    eins_eintr: list[dict],
+    sanmat_eintr: list[dict],
+    zeitraum_pat: str,
+    zeitraum_eins: str,
+    zeitraum_sanmat: str,
+    ziel_pfad: str,
+) -> None:
+    """
+    Erstellt eine Excel-Datei mit 3 Tabs:
+      - Pat. auf Station, Einsätze, Sanmaterial
+    Laufende Nummer: ältestes Datum = Nr. 1, neuestes = letzte Nr.
+    Spaltenbreite: automatisch an Inhalt angepasst.
+    """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    import re as _re
+    from datetime import date as _dt
+
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left   = Alignment(horizontal="left",   vertical="center", wrap_text=True)
+    thin   = Border(
+        left=Side(style="thin", color="CCCCCC"),
+        right=Side(style="thin", color="CCCCCC"),
+        top=Side(style="thin", color="CCCCCC"),
+        bottom=Side(style="thin", color="CCCCCC"),
+    )
+    hdr_font = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
+
+    def _hdr_fill(hex6: str) -> PatternFill:
+        return PatternFill("solid", fgColor=hex6.lstrip("#"))
+
+    def _d_dmy(s: str):
+        """DD.MM.YYYY → date-Objekt für echten Excel-Datumswert."""
+        m = _re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$", str(s or "").strip())
+        if m:
+            try:
+                return _dt(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            except ValueError:
+                pass
+        return s
+
+    def _d_iso(s: str):
+        """YYYY-MM-DD → date-Objekt für echten Excel-Datumswert."""
+        m = _re.match(r"^(\d{4})-(\d{2})-(\d{2})$", str(s or "").strip())
+        if m:
+            try:
+                return _dt(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            except ValueError:
+                pass
+        return s
+
+    def _auto_breite(ws):
+        """Passt alle Spaltenbreiten automatisch an den längsten Zelleninhalt an."""
+        for col_cells in ws.columns:
+            max_len = 0
+            col_letter = get_column_letter(col_cells[0].column)
+            for cell in col_cells:
+                try:
+                    for part in str(cell.value or "").split("\n"):
+                        max_len = max(max_len, len(part))
+                except Exception:
+                    pass
+            ws.column_dimensions[col_letter].width = max(10, min(max_len + 4, 65))
+
+    def _schreibe_tab(
+        ws, titel: str, zeitraum: str,
+        spalten: list[str], zeilen: list[list],
+        hdr_color: str, zebra1: str, zebra2: str,
+    ):
+        n_cols   = len(spalten)
+        last_col = get_column_letter(n_cols)
+
+        # Zeile 1 – Titel
+        ws.merge_cells(f"A1:{last_col}1")
+        c = ws.cell(row=1, column=1, value=titel)
+        c.font      = Font(bold=True, size=13, color="FFFFFF")
+        c.fill      = _hdr_fill(hdr_color)
+        c.alignment = center
+        ws.row_dimensions[1].height = 26
+
+        # Zeile 2 – Zeitraum
+        ws.merge_cells(f"A2:{last_col}2")
+        s = ws.cell(
+            row=2, column=1,
+            value=(
+                f"Zeitraum: {zeitraum}    |    "
+                f"Erstellt: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+            ),
+        )
+        s.font      = Font(italic=True, size=9, color="555555")
+        s.alignment = center
+        ws.row_dimensions[2].height = 14
+
+        # Zeile 3 – Spaltenköpfe
+        for col_idx, name in enumerate(spalten, 1):
+            c = ws.cell(row=3, column=col_idx, value=name)
+            c.font      = hdr_font
+            c.fill      = _hdr_fill(hdr_color)
+            c.alignment = center
+            c.border    = thin
+        ws.row_dimensions[3].height = 22
+        ws.auto_filter.ref = f"A3:{last_col}3"
+
+        f1 = PatternFill("solid", fgColor=zebra1)
+        f2 = PatternFill("solid", fgColor=zebra2)
+        for r_off, zeile in enumerate(zeilen):
+            row_num = 4 + r_off
+            fill    = f1 if r_off % 2 == 0 else f2
+            for col_idx, wert in enumerate(zeile, 1):
+                c = ws.cell(row=row_num, column=col_idx, value=wert)
+                if isinstance(wert, _dt):
+                    c.number_format = "DD.MM.YYYY"
+                c.fill      = fill
+                c.border    = thin
+                c.alignment = center if col_idx <= 3 else left
+            ws.row_dimensions[row_num].height = 18
+
+        ws.freeze_panes = "A4"
+        _auto_breite(ws)
+
+    # Sortier-Schlüssel: aufsteigend nach Datum (ältestes = Nr. 1)
+    def _key_dmy(e: dict) -> tuple:
+        m = _re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$", str(e.get("datum", "") or ""))
+        if m:
+            return (int(m.group(3)), int(m.group(2)), int(m.group(1)))
+        return (9999, 99, 99)
+
+    def _key_iso(e: dict) -> str:
+        return str(e.get("datum", "") or "")
+
+    wb      = openpyxl.Workbook()
+    ws_dummy = wb.active
+
+    # ── Tab 1: Pat. auf Station ───────────────────────────────────────────────
+    pat_sorted = sorted(pat_eintr, key=_key_dmy)
+    ws_pat = wb.create_sheet("Pat. auf Station")
+    _schreibe_tab(
+        ws_pat,
+        f"🏥  Pat. auf Station  ({len(pat_sorted)} Einträge)",
+        zeitraum_pat,
+        [
+            "Nr.", "Datum", "Uhrzeit", "Dauer (Min.)", "Typ", "Alter",
+            "Beschwerde", "Ort", "Maßnahmen", "DRK MA 1", "Weitergeleitet", "BG-Fall",
+        ],
+        [
+            [
+                idx,
+                _d_dmy(e.get("datum", "")),
+                e.get("uhrzeit", "") or "",
+                e.get("behandlungsdauer", "") or "",
+                e.get("patient_typ", "") or "",
+                e.get("alter", "") or "",
+                e.get("beschwerde_art", "") or "",
+                e.get("unfall_ort", "") or "",
+                e.get("massnahmen", "") or "",
+                e.get("drk_ma1", "") or "",
+                e.get("weitergeleitet", "") or "",
+                "Ja" if e.get("arbeitsunfall") else "Nein",
+            ]
+            for idx, e in enumerate(pat_sorted, 1)
+        ],
+        "B71C1C", "FFFFFF", "FFEBEE",
+    )
+
+    # ── Tab 2: Einsätze ───────────────────────────────────────────────────────
+    eins_sorted = sorted(eins_eintr, key=_key_dmy)
+    ws_eins = wb.create_sheet("Einsätze")
+    _schreibe_tab(
+        ws_eins,
+        f"🚑  Einsätze  ({len(eins_sorted)} Einträge)",
+        zeitraum_eins,
+        [
+            "Nr.", "Datum", "Uhrzeit", "Dauer (Min.)", "Stichwort",
+            "Ort", "DRK-Nr.", "MA 1", "MA 2", "Angenommen", "Bemerkung",
+        ],
+        [
+            [
+                idx,
+                _d_dmy(e.get("datum", "")),
+                e.get("uhrzeit", "") or "",
+                e.get("einsatzdauer", "") or "",
+                e.get("einsatzstichwort", "") or "",
+                e.get("einsatzort", "") or "",
+                e.get("einsatznr_drk", "") or "",
+                e.get("drk_ma1", "") or "",
+                e.get("drk_ma2", "") or "",
+                "Ja" if e.get("angenommen", 1) else "Nein",
+                e.get("bemerkung", "") or "",
+            ]
+            for idx, e in enumerate(eins_sorted, 1)
+        ],
+        "2E7D32", "FFFFFF", "E8F5E9",
+    )
+
+    # ── Tab 3: Sanmaterial ────────────────────────────────────────────────────
+    sanmat_sorted = sorted(sanmat_eintr, key=_key_iso)
+    ws_san = wb.create_sheet("Sanmaterial")
+    _schreibe_tab(
+        ws_san,
+        f"🧰  Sanmaterial  ({len(sanmat_sorted)} Einträge)",
+        zeitraum_sanmat,
+        ["Nr.", "Datum", "Artikel", "Menge", "Bemerkung"],
+        [
+            [
+                idx,
+                _d_iso(e.get("datum", "")),
+                e.get("artikel_name", "") or "",
+                abs(e.get("menge") or 0) or "",
+                e.get("bemerkung", "") or "",
+            ]
+            for idx, e in enumerate(sanmat_sorted, 1)
+        ],
+        "E65100", "FFFFFF", "FFF3E0",
+    )
+
+    if len(wb.worksheets) > 1:
+        wb.remove(ws_dummy)
+
+    os.makedirs(os.path.dirname(ziel_pfad), exist_ok=True)
+    wb.save(ziel_pfad)
