@@ -1427,7 +1427,7 @@ def _erstelle_abrechnung_excel(
                 idx,
                 _d_iso(e.get("datum", "")),
                 e.get("artikel_name", "") or "",
-                e.get("menge", "") or "",
+                abs(e.get("menge") or 0) or "",
                 e.get("bemerkung", "") or "",
             ]
             for idx, e in enumerate(sanmat_sorted, 1)
