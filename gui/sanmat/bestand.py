@@ -375,77 +375,55 @@ def _erstelle_inventur_excel(bestand: list[dict], pfad: str) -> None:
     c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
     ws.row_dimensions[1].height = 28
 
-    # Nach Kategorie gruppieren
-    nach_kat: dict[str, list[dict]] = {}
-    for a in bestand:
-        k = a.get("kategorie", "Sonstige")
-        nach_kat.setdefault(k, []).append(a)
-
-    # Reihenfolge: bekannte Kategorien zuerst, dann Rest
-    reihenfolge = [k for k in _KAT_REIHENFOLGE if k in nach_kat]
-    reihenfolge += [k for k in nach_kat if k not in _KAT_REIHENFOLGE]
-
-    row = 2
-    for kat in reihenfolge:
-        artikel_liste = sorted(nach_kat[kat], key=lambda x: x.get("bezeichnung", ""))
-        zeilen_fg, header_fg = _KAT_FARBEN.get(kat, ("FFEEEEEE", "FF555555"))
-
-        # Kategoriezeile
-        ws.merge_cells(f"A{row}:{get_column_letter(len(_SPALTEN))}{row}")
-        c = ws.cell(row=row, column=1, value=kat)
-        c.font = Font(name="Calibri", bold=True, size=11, color="FFFFFFFF")
-        c.fill = PatternFill("solid", fgColor=header_fg[2:])
-        c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    # Spaltenköpfe (Zeile 2)
+    for col, titel in enumerate(_SPALTEN, start=1):
+        c = ws.cell(row=2, column=col, value=titel)
+        c.font = Font(name="Calibri", bold=True, size=9, color="FFFFFFFF")
+        c.fill = PatternFill("solid", fgColor="404040")
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         c.border = _medium()
-        ws.row_dimensions[row].height = 20
+    ws.row_dimensions[2].height = 24
+
+    # Alle Artikel alphabetisch nach Bezeichnung
+    artikel_liste = sorted(bestand, key=lambda x: x.get("bezeichnung", "").lower())
+
+    row = 3
+    alt = False
+    for a in artikel_liste:
+        bg = "F2F2F2" if not alt else "FFFFFF"
+        alt = not alt
+        werte = [
+            a.get("artikelnr", ""),
+            a.get("bezeichnung", ""),
+            a.get("kategorie", ""),
+            a.get("einheit", ""),
+            a.get("packungsinhalt", ""),
+            a.get("pzn", ""),
+            a.get("menge", 0),
+            a.get("min_menge", 0) or "",
+            a.get("lagerort", ""),
+            a.get("bemerkung", ""),
+        ]
+        for col, val in enumerate(werte, start=1):
+            c = ws.cell(row=row, column=col, value=val)
+            c.fill = PatternFill("solid", fgColor=bg)
+            c.font = Font(name="Calibri", size=9)
+            c.border = _thin()
+            c.alignment = Alignment(
+                vertical="center",
+                wrap_text=(col == 2),
+                horizontal="center" if col in (7, 8) else "left",
+            )
+        # Bestand rot markieren wenn 0
+        menge_cell = ws.cell(row=row, column=7)
+        if int(a.get("menge", 0)) == 0:
+            menge_cell.font = Font(name="Calibri", size=9, bold=True, color="FF8B0000")
+        elif int(a.get("min_menge") or 0) > 0 and int(a.get("menge", 0)) <= int(a.get("min_menge") or 0):
+            menge_cell.font = Font(name="Calibri", size=9, bold=True, color="FF7F5700")
+        ws.row_dimensions[row].height = 15
         row += 1
 
-        # Spaltenköpfe
-        for col, titel in enumerate(_SPALTEN, start=1):
-            c = ws.cell(row=row, column=col, value=titel)
-            c.font = Font(name="Calibri", bold=True, size=9, color="FFFFFFFF")
-            c.fill = PatternFill("solid", fgColor="404040")
-            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            c.border = _medium()
-        ws.row_dimensions[row].height = 24
-        row += 1
-
-        alt = False
-        for a in artikel_liste:
-            bg = zeilen_fg[2:] if not alt else "FFFFFF"
-            alt = not alt
-            werte = [
-                a.get("artikelnr", ""),
-                a.get("bezeichnung", ""),
-                a.get("kategorie", ""),
-                a.get("einheit", ""),
-                a.get("packungsinhalt", ""),
-                a.get("pzn", ""),
-                a.get("menge", 0),
-                a.get("min_menge", 0) or "",
-                a.get("lagerort", ""),
-                a.get("bemerkung", ""),
-            ]
-            for col, val in enumerate(werte, start=1):
-                c = ws.cell(row=row, column=col, value=val)
-                c.fill = PatternFill("solid", fgColor=bg)
-                c.font = Font(name="Calibri", size=9)
-                c.border = _thin()
-                c.alignment = Alignment(
-                    vertical="center",
-                    wrap_text=(col == 2),
-                    horizontal="center" if col in (7, 8) else "left",
-                )
-            # Bestand rot markieren wenn 0
-            menge_cell = ws.cell(row=row, column=7)
-            if int(a.get("menge", 0)) == 0:
-                menge_cell.font = Font(name="Calibri", size=9, bold=True, color="FF8B0000")
-            elif int(a.get("min_menge") or 0) > 0 and int(a.get("menge", 0)) <= int(a.get("min_menge") or 0):
-                menge_cell.font = Font(name="Calibri", size=9, bold=True, color="FF7F5700")
-            ws.row_dimensions[row].height = 15
-            row += 1
-
-        row += 1  # Leerzeile zwischen Kategorien
+    ws.auto_filter.ref = f"A2:{get_column_letter(len(_SPALTEN))}{row - 1}"
 
     # Seiteneinrichtung: DIN A4 Querformat, Breite = 1 Seite
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
