@@ -1,8 +1,8 @@
 # Nesk3 – Technische Dokumentation
 
-**Stand:** 15.04.2026 – v3.9.0  
+**Stand:** 20.04.2026 – v3.10.0  
 **Anwendung:** Nesk3 – DRK Flughafen Köln/Bonn  
-**Zweck:** Dienstplan-Verwaltung, Stärkemeldung, Mitarbeiterverwaltung, Einsatzprotokoll, Verspätungs-Meldungen, Telefonnummern-Verzeichnis, PSA-Tracking, Hilfe-Screenshot-Galerie, Passagieranfragen, **Schulungs-Verwaltung**
+**Zweck:** Dienstplan-Verwaltung, Stärkemeldung, Mitarbeiterverwaltung, Einsatzprotokoll, Verspätungs-Meldungen, Telefonnummern-Verzeichnis, PSA-Tracking, Hilfe-Screenshot-Galerie, Passagieranfragen, **Schulungs-Verwaltung**, **Vorkommnisberichte**, **Dashboard-Notizen**
 
 ---
 
@@ -42,6 +42,7 @@ Nesk3/
 │   ├── mitarbeiter_dokumente.py     # Mitarbeiterdokumente + Stellungnahmen + Verspätung
 │   ├── einstellungen.py             # Einstellungen (Pfade, E-Mobby-Fahrerverwaltung)
 │   ├── telefonnummern.py            # Telefonnummern-Verzeichnis (4 Tabs, Import, CRUD) [NEU]
+│   ├── vorkommnisse.py              # Vorkommnisberichte (Formular, Word-Export, E-Mail) [NEU v3.10]
 │   └── checklisten.py               # Checklisten-Tab
 │
 ├── functions/
@@ -60,7 +61,9 @@ Nesk3/
 │   ├── stellungnahmen_db.py         # SQLite-Protokoll für Stellungnahmen
 │   ├── uebergabe_functions.py       # DB-Funktionen für Übergabe-Protokolle
 │   ├── verspaetung_db.py            # SQLite-Protokoll für Verspätungs-Meldungen [NEU]
-│   └── verspaetung_functions.py     # Word-Vorlage FO_CGN_27 ausfüllen/speichern [NEU]
+│   ├── verspaetung_functions.py     # Word-Vorlage FO_CGN_27 ausfüllen/speichern [NEU]
+│   ├── vorkommnisse_db.py           # CRUD für Vorkommnisberichte (WAL) [NEU v3.10]
+│   └── notizen_db.py                # CRUD für Dashboard-Notizen/Termine (WAL) [NEU v3.10]
 │
 ├── database/
 │   ├── connection.py                # SQLite-Verbindung
@@ -457,6 +460,8 @@ Alle SQLite-Datenbanken liegen seit **05.03.2026** zentral im Ordner `database S
 | `stellungnahmen.db` | Passagierbeschwerde-Stellungnahmen | ✅ | `functions/stellungnahmen_db.py` |
 | `einsaetze.db` | Einsatzprotokoll FKB (Dienstliches) | ✅ | `gui/dienstliches.py` |
 | `verspaetungen.db` | Verspätungs-Meldungen (Unpünktlicher Dienstantritt) | ✅ | `functions/verspaetung_db.py` |
+| `vorkommnisse.db` | Vorkommnisberichte [NEU v3.10] | ✅ | `functions/vorkommnisse_db.py` |
+| `notizen.db` | Dashboard-Notizen und Termine [NEU v3.10] | ✅ | `functions/notizen_db.py` |
 
 **Hinweis zu OneDrive/Netzwerkbetrieb:** SQLite ist nicht für echten Mehrbenutzer-Schreibzugriff über Netzlaufwerke geeignet. WAL-Modus (`nesk3.db`) verbessert die Lese-Parallelität, schützt aber nicht vor Schreibkonflikten bei gleichzeitigem Zugriff von mehreren PCs. Für Nur-Lese-Zugriffe (Anzeige) ist OneDrive-Sync ausreichend.
 

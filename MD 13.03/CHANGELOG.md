@@ -5,6 +5,48 @@ Format: `[Datum] Beschreibung – betroffene Dateien`
 
 ---
 
+## 20.04.2026 – v3.10.0
+
+### Vorkommnisse – Neues Sidebar-Modul für Vorfallberichte
+
+#### `gui/vorkommnisse.py` (neu)
+- **Vollständiges Vorkommnisbericht-Formular**: Flugnummer / Vorkommnis, Datum, Uhrzeit, Ort, Beteiligte Mitarbeiter, Kategorie, Beschreibung, Maßnahmen
+- **Label „Flugnummer / Vorkommnis:"** – universell für Flüge und flugunabhängige Ereignisse
+- **1. Betroffene Personen** (ehemals „Betroffene Passagiere"): generische `_EditTable` mit 4 Spalten
+  - Typ-Dropdown: `Passagier`, `PRM Passagier`, `Patient`, `Mitarbeiter`, `Sonstige`
+  - Kategorie (Spalte 2) nur aktiv wenn Typ = „PRM Passagier" (`conditional_columns`-Feature)
+  - PRM-Kategorien: `WCHS`, `WCHR`, `WCHC`, `BLND`, `DEAF`, `DPNA`, `UMNR`, `STCR`, `MEDA`, `Sonstiges`
+- **`_EditTable.conditional_columns`**: neuer Parameter `dict[int, tuple[int, list[str]]]` – deaktiviert und leert Spalte wenn Bedingungsspalte nicht den erwarteten Wert hat; `_update_conditional()` + Signal-Wiring in `_add_row()` und `set_data()`
+- **Offblock-Felder optional**: Plan- und Ist-Offblock als `QTimeEdit + QCheckBox("angeben")` in `QWidget`-Container; standardmäßig deaktiviert; Checkbox steuert Aktivierung des Zeitfelds; `_sammle_daten()` gibt `""` zurück wenn Checkbox inaktiv
+- **Verspätungs-Berechnung**: nur wenn beide Offblock-Checkboxen aktiv und Plan < Ist (sonst kein Eintrag)
+- **Word-Export (`_erstelle_word`)**: dynamische Grunddaten-Tabelle (Offblock-Zeilen nur wenn befüllt); Personen-Tabelle mit 4 Spalten `[Person, Typ, Kategorie, Anmerkung]`; DRK-Logo in Kopfzeile
+- **E-Mail-Entwurf (`_btn_email`)**: `_email_entwurf_dialog()` mit vorausgefülltem Betreff `Vorkommnisbericht – Flug {flug}`, QTextEdit-Body, QListWidget der `.docx`-Dateien (nach mtime sortiert); `_erstelle_outlook_entwurf()` via `win32com.client`
+- **Header-Buttons**: Neu, Speichern, Word-Export, Ordner öffnen, E-Mail-Entwurf
+- **`_formular_leeren()`**: Setzt Checkboxen auf False + QTime(0,0)
+- **`_formular_befuellen()`**: Checkbox wird gesetzt wenn Wert nicht in `("", "00:00", "00:00 Uhr")`
+
+#### `functions/vorkommnisse_db.py` (neu)
+- SQLite CRUD für `vorkommnisse.db` (WAL-Modus)
+- Tabelle `vorkommnisse`: id, datum, uhrzeit, ort, flugnummer, kategorie, beschreibung, massnahmen, offblock_plan, offblock_ist, verspaetung_min, personen (JSON), mitarbeiter, erstellt_am
+- `speichern(daten)`, `aktualisieren(id, daten)`, `lade_alle()`, `lade_einen(id)`, `loeschen(id)`
+
+#### `config.py`
+- `VORKOMMNISSE_DB_PATH` ergänzt (`database SQL/vorkommnisse.db`)
+- `NOTIZEN_DB_PATH` ergänzt (`database SQL/notizen.db`)
+
+### Dashboard – Notizen-Panel mit Kalenderintegration
+
+#### `gui/dashboard.py`
+- **Kalender-Dots**: blaue Punkte für Termine, grüne Punkte für Notizen; Doppelklick auf Tag öffnet Dialog
+- **`_neue_notiz_dialog()`**: Dialog zum Anlegen neuer Notizen mit Datum, Titel, Text, Fälligkeitsdatum
+- Kalender aktualisiert sich nach Speichern automatisch
+
+#### `functions/notizen_db.py` (neu)
+- SQLite CRUD für `notizen.db` (WAL-Modus)
+- Funktionen: `speichern`, `als_gelesen`, `als_erledigt`, `loeschen`, `lade_aktive`, `lade_alle`, `lade_fuer_datum`
+
+---
+
 ## 15.04.2026 – v3.9.0
 
 ### Schulungen – Informiert-Status, neue Schulungstypen, Monatsfilter-Default

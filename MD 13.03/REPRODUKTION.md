@@ -1,6 +1,6 @@
 # Nesk3 – Reproduktionsprotokoll
 
-**Stand:** 15.04.2026 – v3.9.0  
+**Stand:** 20.04.2026 – v3.10.0  
 **Ziel:** Vollständige Neuerstellung der Nesk3-Anwendung auf einem neuen System
 
 ---
@@ -47,7 +47,8 @@ Nesk3/
 │   ├── checklisten.py               # Checklisten
 │   ├── hilfe_dialog.py              # Animierter Hilfe-Dialog
 │   ├── beschwerden.py               # Beschwerden-Verwaltung [NEU v3.5]
-│   └── passagieranfragen.py         # Passagieranfragen (Outlook-Inbox, Extraktion, Szenarien) [NEU v3.5]
+│   ├── passagieranfragen.py         # Passagieranfragen (Outlook-Inbox, Extraktion, Szenarien) [NEU v3.5]
+│   └── vorkommnisse.py              # Vorkommnisberichte (Formular, Word-Export, E-Mail) [NEU v3.10]
 │
 ├── functions/
 │   ├── __init__.py
@@ -66,7 +67,9 @@ Nesk3/
 │   ├── stellungnahmen_html_export.py # HTML-Ansicht Stellungnahmen [NEU v3.x]
 │   ├── uebergabe_functions.py       # DB CRUD für Übergabe
 │   ├── verspaetung_db.py            # Verspätungs-DB (WAL, _connect()) [NEU v3.x]
-│   └── beschwerden_db.py            # Beschwerden-DB [NEU v3.5]
+│   ├── beschwerden_db.py            # Beschwerden-DB [NEU v3.5]
+│   ├── vorkommnisse_db.py           # Vorkommnisberichte-DB (WAL) [NEU v3.10]
+│   └── notizen_db.py                # Notizen/Termine-DB (WAL) [NEU v3.10]
 │
 ├── database/
 │   ├── __init__.py
@@ -82,12 +85,14 @@ Nesk3/
 │   └── E-Mobby/
 │       └── mobby.txt                ← E-Mobby-Fahrerliste (ein Name/Zeile)
 │
-├── database SQL/                    # Alle 5 SQLite-DBs (seit 05.03.2026)
+├── database SQL/                    # Alle 7 SQLite-DBs (seit 05.03.2026)
 │   ├── nesk3.db                     # Haupt-DB (WAL) ← wird automatisch erstellt
 │   ├── archiv.db                    # Archiv (WAL)
 │   ├── stellungnahmen.db            # Stellungnahmen (WAL)
 │   ├── einsaetze.db                 # Einsatzprotokoll (WAL)
-│   └── verspaetungen.db             # Verspätungs-Meldungen (WAL)
+│   ├── verspaetungen.db             # Verspätungs-Meldungen (WAL)
+│   ├── vorkommnisse.db              # Vorkommnisberichte (WAL) [NEU v3.10]
+│   └── notizen.db                   # Dashboard-Notizen/Termine (WAL) [NEU v3.10]
 │
 └── docs/
     ├── FUNKTIONEN.md

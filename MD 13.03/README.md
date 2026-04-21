@@ -3,8 +3,15 @@
 **DRK Flughafen Köln – Erste-Hilfe-Station**  
 Dienstplan-Verwaltung, Stärkemeldung und Mitarbeiterverwaltung
 
-**Version:** v3.9.0 (15.04.2026)  
-**Module:** Dashboard · Mitarbeiter · Dienstliches · Aufgaben Tag/Nacht · Dienstplan · Übergabe · Fahrzeuge · Code 19 · **Telefonnummern** · Backup · Einstellungen · Hilfe · Passagieranfragen · **Schulungen** · **Sanitätsmaterial**
+**Version:** v3.10.0 (20.04.2026)  
+**Module:** Dashboard · Mitarbeiter · Dienstliches · Aufgaben Tag/Nacht · Dienstplan · Übergabe · Fahrzeuge · Code 19 · **Telefonnummern** · Backup · Einstellungen · Hilfe · Passagieranfragen · **Schulungen** · **Sanitätsmaterial** · **Vorkommnisse**
+
+### Neu in v3.10.0
+- **Vorkommnisse** (neues Sidebar-Modul): Vollständige Vorfallbericht-Erfassung mit Formular, Person-Tabelle (5 Typen), optionalen Offblock-Feldern, Word-Export und Outlook-E-Mail-Entwurf
+- **Betroffene Personen – 5 Typen**: Passagier / PRM Passagier / Patient / Mitarbeiter / Sonstige; PRM-Kategorie-Dropdown (WCHS/WCHR/…) nur bei „PRM Passagier" aktiv
+- **Offblock optional**: Plan- und Ist-Offblock per Checkbox aktivierbar; Verspätungsberechnung nur wenn beide Felder gesetzt
+- **Outlook-Entwurf (Vorkommnisse)**: Dialog mit Betreff, Freitext-Body und Dateiauswahl aus den gespeicherten Berichten
+- **Dashboard – Notizen**: Kalender zeigt farbige Punkte für Termine (blau) und Notizen (grün); Doppelklick öffnet Notiz-Dialog
 
 ### Neu in v3.9.0
 - **Schulungen – Informiert-Status**: Neue Spalten `informiert` + `informiert_am` in der DB; Checkbox + Datumsfeld im Bearbeiten-Dialog; Spalte „Informiert" in der Mitarbeiter-Detailansicht
