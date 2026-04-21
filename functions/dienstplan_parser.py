@@ -478,6 +478,16 @@ class DienstplanParser:
                 t = value.time()
             elif isinstance(value, time):
                 t = value
+            elif isinstance(value, (int, float)):
+                # Excel speichert Zeiten als Bruchteil eines Tages (z.B. 0.25 = 06:00).
+                # openpyxl liefert float wenn die Zelle kein Zeitformat hat (z.B. bei
+                # manuell eingetragenen Abweichungen die als "Standard" formatiert sind).
+                from openpyxl.utils.datetime import from_excel
+                converted = from_excel(value)
+                if isinstance(converted, time):
+                    t = converted
+                else:
+                    return None
             elif isinstance(value, str):
                 value = value.strip()
                 m = re.match(r'(\d{1,2}):(\d{2})', value)
