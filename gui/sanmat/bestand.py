@@ -5,14 +5,24 @@ Bestandsübersicht, Einlagerung (Wareneingang), Mindestbestand, Korrektur.
 
 import csv
 import os
-from datetime import datetime
+from datetime import datetime, date
+
+try:
+    import openpyxl
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.page import PageMargins
+    _OPENPYXL_OK = True
+except ImportError:
+    _OPENPYXL_OK = False
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QComboBox, QLineEdit,
     QSpinBox, QDialog, QDialogButtonBox, QFormLayout, QFrame,
     QMessageBox, QHeaderView, QAbstractItemView, QDateEdit,
-    QScrollArea, QFileDialog,
+    QScrollArea, QFileDialog, QRadioButton, QButtonGroup as QRadioGroup,
+    QGroupBox,
 )
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtGui import QColor
@@ -224,6 +234,235 @@ class KorrekturDialog(QDialog):
                 "bemerkung": self.le_bem.text().strip()}
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# Excel-Inventur-Export
+# ────────────────────────────────────────────────────────────────────────────
+
+class InventurExportDialog(QDialog):
+    """Kleiner Dialog: Filterauswahl + Speicherpfad für Excel-Inventur."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Inventur als Excel exportieren")
+        self.setMinimumWidth(480)
+        self.setModal(True)
+        self._pfad = ""
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 16)
+        layout.setSpacing(14)
+
+        # Filtergruppe
+        grp = QGroupBox("Welche Artikel exportieren?")
+        grp_layout = QVBoxLayout(grp)
+        self._rb_alle = QRadioButton("Alle Artikel (auch ohne Bestand)")
+        self._rb_bestand = QRadioButton("Nur Artikel mit vorhandenem Bestand (> 0)")
+        self._rb_alle.setChecked(True)
+        grp_layout.addWidget(self._rb_alle)
+        grp_layout.addWidget(self._rb_bestand)
+        layout.addWidget(grp)
+
+        # Speicherpfad
+        pfad_label = QLabel("Speicherort:")
+        pfad_label.setStyleSheet("font-weight:bold;")
+        layout.addWidget(pfad_label)
+
+        pfad_row = QHBoxLayout()
+        self._le_pfad = QLineEdit()
+        vorschlag = os.path.join(
+            os.path.expanduser("~"), "Desktop",
+            f"Inventur_SanMat_{date.today().strftime('%Y-%m-%d')}.xlsx"
+        )
+        self._le_pfad.setText(vorschlag)
+        self._le_pfad.setPlaceholderText("Pfad zur Excel-Datei ...")
+        pfad_row.addWidget(self._le_pfad, 1)
+        btn_browse = QPushButton("Durchsuchen …")
+        btn_browse.clicked.connect(self._browse)
+        pfad_row.addWidget(btn_browse)
+        layout.addLayout(pfad_row)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText("Exportieren")
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText("Abbrechen")
+        btns.accepted.connect(self._validate_and_accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    def _browse(self):
+        vorschlag = self._le_pfad.text() or os.path.join(
+            os.path.expanduser("~"), "Desktop",
+            f"Inventur_SanMat_{date.today().strftime('%Y-%m-%d')}.xlsx"
+        )
+        pfad, _ = QFileDialog.getSaveFileName(
+            self, "Speicherort wählen", vorschlag,
+            "Excel-Dateien (*.xlsx)"
+        )
+        if pfad:
+            if not pfad.lower().endswith(".xlsx"):
+                pfad += ".xlsx"
+            self._le_pfad.setText(pfad)
+
+    def _validate_and_accept(self):
+        pfad = self._le_pfad.text().strip()
+        if not pfad:
+            QMessageBox.warning(self, "Hinweis", "Bitte einen Speicherpfad angeben.")
+            return
+        self._pfad = pfad
+        self.accept()
+
+    def nur_mit_bestand(self) -> bool:
+        return self._rb_bestand.isChecked()
+
+    def pfad(self) -> str:
+        return self._pfad
+
+
+def _thin():
+    s = Side(style="thin", color="FFB0B0B0")
+    return Border(left=s, right=s, top=s, bottom=s)
+
+
+def _medium():
+    s = Side(style="medium", color="FF666666")
+    return Border(left=s, right=s, top=s, bottom=s)
+
+
+_KAT_FARBEN = {
+    "Wundversorgung":       ("FFD6E4BC", "FF4A7C1F"),
+    "Desinfektion":         ("FFDCE6F1", "FF174069"),
+    "Schutzausrüstung":     ("FFFFF2CC", "FF7F6000"),
+    "Diagnostik":           ("FFFCE4D6", "FF843C0C"),
+    "Notfallausrüstung":    ("FFFFE2CC", "FF833C04"),
+    "Patientenversorgung":  ("FFE2EFDA", "FF375623"),
+    "Verbrauchsmaterial":   ("FFEDEDED", "FF595959"),
+    "Entsorgung":           ("FFFFF0CC", "FF7F5700"),
+}
+_KAT_REIHENFOLGE = [
+    "Wundversorgung", "Desinfektion", "Schutzausrüstung", "Diagnostik",
+    "Notfallausrüstung", "Patientenversorgung", "Verbrauchsmaterial", "Entsorgung",
+]
+_SPALTEN = [
+    "Artikelnr.", "Bezeichnung", "Kategorie", "Einheit",
+    "Packungsinhalt", "PZN", "Ist-Bestand", "Min.-Bestand",
+    "Lagerort", "Bemerkung",
+]
+_BREITEN = [14, 44, 18, 8, 16, 14, 10, 10, 16, 24]
+
+
+def _erstelle_inventur_excel(bestand: list[dict], pfad: str) -> None:
+    """Erzeugt die Excel-Inventurdatei aus echten DB-Daten."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Inventur"
+    ws.sheet_view.showGridLines = False
+
+    for col, b in enumerate(_BREITEN, start=1):
+        ws.column_dimensions[get_column_letter(col)].width = b
+
+    # Hauptheader
+    ws.merge_cells(f"A1:{get_column_letter(len(_SPALTEN))}1")
+    c = ws["A1"]
+    c.value = (
+        f"Inventurliste Sanitätsmaterial  –  DRK Flughafen Köln/Bonn"
+        f"  |  Stand: {date.today().strftime('%d.%m.%Y')}"
+    )
+    c.font = Font(name="Calibri", bold=True, size=13, color="FFFFFFFF")
+    c.fill = PatternFill("solid", fgColor="CC0000")
+    c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[1].height = 28
+
+    # Nach Kategorie gruppieren
+    nach_kat: dict[str, list[dict]] = {}
+    for a in bestand:
+        k = a.get("kategorie", "Sonstige")
+        nach_kat.setdefault(k, []).append(a)
+
+    # Reihenfolge: bekannte Kategorien zuerst, dann Rest
+    reihenfolge = [k for k in _KAT_REIHENFOLGE if k in nach_kat]
+    reihenfolge += [k for k in nach_kat if k not in _KAT_REIHENFOLGE]
+
+    row = 2
+    for kat in reihenfolge:
+        artikel_liste = sorted(nach_kat[kat], key=lambda x: x.get("bezeichnung", ""))
+        zeilen_fg, header_fg = _KAT_FARBEN.get(kat, ("FFEEEEEE", "FF555555"))
+
+        # Kategoriezeile
+        ws.merge_cells(f"A{row}:{get_column_letter(len(_SPALTEN))}{row}")
+        c = ws.cell(row=row, column=1, value=kat)
+        c.font = Font(name="Calibri", bold=True, size=11, color="FFFFFFFF")
+        c.fill = PatternFill("solid", fgColor=header_fg[2:])
+        c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        c.border = _medium()
+        ws.row_dimensions[row].height = 20
+        row += 1
+
+        # Spaltenköpfe
+        for col, titel in enumerate(_SPALTEN, start=1):
+            c = ws.cell(row=row, column=col, value=titel)
+            c.font = Font(name="Calibri", bold=True, size=9, color="FFFFFFFF")
+            c.fill = PatternFill("solid", fgColor="404040")
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            c.border = _medium()
+        ws.row_dimensions[row].height = 24
+        row += 1
+
+        alt = False
+        for a in artikel_liste:
+            bg = zeilen_fg[2:] if not alt else "FFFFFF"
+            alt = not alt
+            werte = [
+                a.get("artikelnr", ""),
+                a.get("bezeichnung", ""),
+                a.get("kategorie", ""),
+                a.get("einheit", ""),
+                a.get("packungsinhalt", ""),
+                a.get("pzn", ""),
+                a.get("menge", 0),
+                a.get("min_menge", 0) or "",
+                a.get("lagerort", ""),
+                a.get("bemerkung", ""),
+            ]
+            for col, val in enumerate(werte, start=1):
+                c = ws.cell(row=row, column=col, value=val)
+                c.fill = PatternFill("solid", fgColor=bg)
+                c.font = Font(name="Calibri", size=9)
+                c.border = _thin()
+                c.alignment = Alignment(
+                    vertical="center",
+                    wrap_text=(col == 2),
+                    horizontal="center" if col in (7, 8) else "left",
+                )
+            # Bestand rot markieren wenn 0
+            menge_cell = ws.cell(row=row, column=7)
+            if int(a.get("menge", 0)) == 0:
+                menge_cell.font = Font(name="Calibri", size=9, bold=True, color="FF8B0000")
+            elif int(a.get("min_menge") or 0) > 0 and int(a.get("menge", 0)) <= int(a.get("min_menge") or 0):
+                menge_cell.font = Font(name="Calibri", size=9, bold=True, color="FF7F5700")
+            ws.row_dimensions[row].height = 15
+            row += 1
+
+        row += 1  # Leerzeile zwischen Kategorien
+
+    # Seiteneinrichtung: DIN A4 Querformat, Breite = 1 Seite
+    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+    ws.page_setup.paperSize   = ws.PAPERSIZE_A4
+    ws.page_setup.fitToPage   = True
+    ws.page_setup.fitToWidth  = 1
+    ws.page_setup.fitToHeight = 0
+    ws.page_margins = PageMargins(
+        left=0.4, right=0.4, top=0.5, bottom=0.5, header=0.2, footer=0.2
+    )
+    ws.print_options.horizontalCentered = True
+    ws.freeze_panes = "A3"
+
+    os.makedirs(os.path.dirname(os.path.abspath(pfad)), exist_ok=True)
+    wb.save(pfad)
+
+
 class BestandView(QWidget):
     COLS = ["Bezeichnung", "Artikelnr.", "Kategorie", "Auf Lager",
             "Mindestbest.", "Lagerort", "Einheit", "Packungsinhalt"]
@@ -276,6 +515,11 @@ class BestandView(QWidget):
         btn_export.setObjectName("btn_secondary")
         btn_export.clicked.connect(self._export)
         filter_row.addWidget(btn_export)
+
+        btn_excel = QPushButton("📊  Excel-Inventur")
+        btn_excel.setObjectName("btn_secondary")
+        btn_excel.clicked.connect(self._export_excel)
+        filter_row.addWidget(btn_excel)
         layout.addLayout(filter_row)
 
         self._tbl = QTableWidget(0, len(self.COLS))
@@ -446,6 +690,37 @@ class BestandView(QWidget):
             QMessageBox.information(self, "Exportiert", f"Gespeichert: {pfad}")
         except Exception as e:
             QMessageBox.warning(self, "Fehler", str(e))
+
+    def _export_excel(self):
+        if not _OPENPYXL_OK:
+            QMessageBox.warning(
+                self, "Fehler",
+                "openpyxl ist nicht installiert.\n"
+                "Bitte 'pip install openpyxl' ausführen."
+            )
+            return
+        dlg = InventurExportDialog(parent=self)
+        if not dlg.exec():
+            return
+        pfad = dlg.pfad()
+        bestand = self.db.get_bestand()
+        if dlg.nur_mit_bestand():
+            bestand = [a for a in bestand if int(a.get("menge", 0)) > 0]
+        if not bestand:
+            QMessageBox.information(self, "Kein Bestand", "Keine Artikel für den Export vorhanden.")
+            return
+        try:
+            _erstelle_inventur_excel(bestand, pfad)
+            antwort = QMessageBox.question(
+                self, "Exportiert",
+                f"Datei gespeichert:\n{pfad}\n\nJetzt öffnen?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if antwort == QMessageBox.StandardButton.Yes:
+                import subprocess
+                subprocess.Popen(["explorer", pfad])
+        except Exception as e:
+            QMessageBox.warning(self, "Fehler beim Export", str(e))
 
     def showEvent(self, event):
         super().showEvent(event)
