@@ -270,8 +270,9 @@ class StaerkemeldungDashboardExport:
             pax_jahr=lade_jahres_pax(self._von.year)
             pax_gestern=lade_tages_pax((self._von-timedelta(days=1)).strftime("%Y-%m-%d"))
             einsaetze_gestern=lade_tages_einsaetze((self._von-timedelta(days=1)).strftime("%Y-%m-%d"))
+            einsaetze_jahr=lade_jahres_einsaetze(self._von.year)
         except Exception:
-            pax_jahr=0; pax_gestern=0; einsaetze_gestern=0
+            pax_jahr=0; pax_gestern=0; einsaetze_gestern=0; einsaetze_jahr=0
         for lbl,val in [
             ("+ PAX aktuelles Jahr", f"{pax_jahr:,}".replace(",",".")),
             ("+ PAX Vortag",         f"{pax_gestern:,}".replace(",",".") if pax_gestern else "-"),
@@ -285,6 +286,7 @@ class StaerkemeldungDashboardExport:
             r2.font.name="Aptos"
         _trenn(lc,AZ)
         for lbl,val in [
+            ("SL-Einsaetze akt. Jahr", str(einsaetze_jahr) if einsaetze_jahr else "-"),
             ("SL-Einsaetze Vortag", str(einsaetze_gestern) if einsaetze_gestern else "-"),
             ("SL-Einsaetze heute",  str(self._einsaetze)),
         ]:
