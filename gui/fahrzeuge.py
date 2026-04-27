@@ -1620,6 +1620,7 @@ class FahrzeugeWidget(QWidget):
             self._af_table.setColumnWidth(i, 115)
         # Notizen-Spalte dehnt sich
         hh.setSectionResizeMode(len(headers) - 1, QHeaderView.ResizeMode.Stretch)
+        self._af_table.setWordWrap(True)
         vl.addWidget(self._af_table, 1)
 
         # Legende
@@ -1699,14 +1700,16 @@ class FahrzeugeWidget(QWidget):
         for datum in sorted(alle_daten, reverse=True):
             counts = {s: 0 for s in STATUS_KEYS}
             notizen_liste = []
+            wieder_liste = []
             for fid in fids:
+                eintraege_asc = alle_eintraege[fid]   # aufsteigend sortiert
                 aktuell = None
-                for e in sorted(alle_eintraege[fid],
-                                key=lambda x: (x.get("von") or "",
-                                               x.get("erstellt_am") or ""),
-                                reverse=True):
+                aktuell_idx = -1
+                for i, e in enumerate(eintraege_asc):
                     if (e.get("von") or "")[:10] <= datum:
                         aktuell = e
+                        aktuell_idx = i
+                    else:
                         break
                 if aktuell:
                     s = aktuell.get("status") or "fahrbereit"
@@ -1717,6 +1720,11 @@ class FahrzeugeWidget(QWidget):
                         grund = (aktuell.get("grund") or "").strip()
                         kz = kz_map.get(fid, str(fid))
                         notizen_liste.append(f"{kz}: {grund}" if grund else kz)
+                    elif (aktuell.get("von") or "")[:10] == datum and aktuell_idx > 0:
+                        # Heute explizit auf fahrbereit gesetzt – vorherigen Status prüfen
+                        prev_s = (eintraege_asc[aktuell_idx - 1].get("status") or "fahrbereit")
+                        if prev_s and prev_s != "fahrbereit" and prev_s in STATUS_KEYS:
+                            wieder_liste.append(kz_map.get(fid, str(fid)))
                 else:
                     # Kein Status eingetragen → fahrbereit
                     counts["fahrbereit"] += 1
@@ -1730,6 +1738,7 @@ class FahrzeugeWidget(QWidget):
                 "datum":   datum,
                 **counts,
                 "notizen": "  |  ".join(notizen_liste),
+                "wieder_fahrbereit": "  |  ".join(wieder_liste),
             })
         return result
 
@@ -1798,14 +1807,28 @@ class FahrzeugeWidget(QWidget):
                 self._af_table.setItem(r, c, item)
 
             notiz = row.get("notizen", "")
-            n_item = QTableWidgetItem(notiz if notiz else "–")
-            n_item.setTextAlignment(
-                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+            wieder = row.get("wieder_fahrbereit", "")
+            # Pro Fahrzeug eine eigene Zeile – klar lesbar
+            zeilen = []
+            if wieder:
+                for kz in wieder.split("  |  "):
+                    kz = kz.strip()
+                    if kz:
+                        zeilen.append(f"✅ {kz}: wieder fahrbereit")
             if notiz:
-                n_item.setForeground(QColor("#555555"))
-            else:
+                for item in notiz.split("  |  "):
+                    item = item.strip()
+                    if item:
+                        zeilen.append(f"⚠ {item}")
+            anzeige = "\n".join(zeilen)
+            n_item = QTableWidgetItem(anzeige if anzeige else "–")
+            n_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+            if not anzeige:
                 n_item.setForeground(QColor("#aaaaaa"))
             self._af_table.setItem(r, len(STATUS_COLS) + 1, n_item)
+
+        self._af_table.resizeRowsToContents()
 
     def _export_ausfaelle_excel(self):
         # Daten ggf. nachladen
@@ -2000,8 +2023,21 @@ class FahrzeugeWidget(QWidget):
                                         color=_HC_ARGB.get(sk, "FF000000"))
                     col_max_len[ci] = max(col_max_len[ci], len(str(val)) if val else 0)
 
-                # Notizen
-                notiz_val = row.get("notizen") or ""
+                # Notizen (inkl. wieder-fahrbereit-Hinweis)
+                wieder_v = row.get("wieder_fahrbereit") or ""
+                notiz_basis = row.get("notizen") or ""
+                zeilen_notiz = []
+                if wieder_v:
+                    for kz in wieder_v.split("  |  "):
+                        kz = kz.strip()
+                        if kz:
+                            zeilen_notiz.append(f"✅ {kz}: wieder fahrbereit")
+                if notiz_basis:
+                    for item in notiz_basis.split("  |  "):
+                        item = item.strip()
+                        if item:
+                            zeilen_notiz.append(f"⚠ {item}")
+                notiz_val = "\n".join(zeilen_notiz)
                 nc = ws.cell(row=ri, column=num_cols,
                              value=notiz_val if notiz_val else "")
                 nc.alignment = Alignment(horizontal="left", vertical="top",
