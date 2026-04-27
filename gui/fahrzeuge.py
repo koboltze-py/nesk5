@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (
     QFrame, QScrollArea, QSplitter, QTextEdit, QLineEdit,
     QComboBox, QFormLayout, QMessageBox, QTabWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QDateEdit,
-    QDialog, QDialogButtonBox, QCheckBox, QSizePolicy, QInputDialog
+    QDialog, QDialogButtonBox, QCheckBox, QSizePolicy, QInputDialog,
+    QFileDialog
 )
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtGui import QFont, QColor
@@ -451,12 +452,44 @@ class FahrzeugeWidget(QWidget):
         root.setSpacing(0)
         root.addWidget(self._build_header())
 
+        # ── Top-Level-Tabs: Fahrzeuge | Ausfälle ─────────────────────────────
+        self._main_tabs = QTabWidget()
+        self._main_tabs.setDocumentMode(False)
+        self._main_tabs.setStyleSheet("""
+            QTabWidget::pane { border: none; background: #f8f9fa; }
+            QTabBar::tab {
+                padding: 8px 22px; font-size: 13px; font-family: 'Segoe UI';
+                color: #666; background: #e8ecf0;
+                border-bottom: 2px solid transparent;
+                border-radius: 4px 4px 0 0; margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background: #f8f9fa; color: #1565a8;
+                font-weight: bold; border-bottom: 2px solid #1565a8;
+            }
+            QTabBar::tab:hover:!selected { background: #dde4ec; color: #1565a8; }
+        """)
+
+        # Tab 1: Fahrzeuge (bestehender Inhalt)
+        fz_widget = QWidget()
+        fz_layout = QVBoxLayout(fz_widget)
+        fz_layout.setContentsMargins(0, 0, 0, 0)
+        fz_layout.setSpacing(0)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(2)
         splitter.addWidget(self._build_liste())
         splitter.addWidget(self._build_detail())
         splitter.setSizes([260, 740])
-        root.addWidget(splitter, 1)
+        fz_layout.addWidget(splitter, 1)
+
+        # Tab 2: Ausfälle
+        self._ausfaelle_w = self._build_ausfaelle_tab()
+
+        self._main_tabs.addTab(fz_widget,          "🚗 Fahrzeuge")
+        self._main_tabs.addTab(self._ausfaelle_w,  "📊 Ausfälle")
+        self._main_tabs.currentChanged.connect(self._on_main_tab_changed)
+
+        root.addWidget(self._main_tabs, 1)
 
     def _build_header(self) -> QWidget:
         h = QFrame()
@@ -1467,6 +1500,548 @@ class FahrzeugeWidget(QWidget):
             erstelle_termin(fid, d["datum"], d["titel"], d["typ"],
                             d["uhrzeit"], d["beschreibung"], d["kommentar"])
             self._zeige_fahrzeug(fid)
+
+    # ── Refresh ────────────────────────────────────────────────────────────────
+
+    def _on_main_tab_changed(self, idx: int):
+        if idx == 1:  # Ausfälle-Tab
+            self._refresh_ausfaelle()
+
+    # ── Ausfälle-Tab ───────────────────────────────────────────────────────────
+
+    def _build_ausfaelle_tab(self) -> QWidget:
+        MONATE = ["Jan","Feb","Mär","Apr","Mai","Jun",
+                  "Jul","Aug","Sep","Okt","Nov","Dez"]
+        w = QWidget()
+        w.setStyleSheet("background:white;")
+        vl = QVBoxLayout(w)
+        vl.setContentsMargins(16, 12, 16, 12)
+        vl.setSpacing(8)
+
+        # Titelzeile
+        title_row = QHBoxLayout()
+        title = QLabel("📊 Ausfallstatistik – Bulmor-Fahrzeuge")
+        title.setFont(QFont("Arial", 15, QFont.Weight.Bold))
+        title.setStyleSheet(f"color:{FIORI_TEXT};")
+        title_row.addWidget(title)
+        title_row.addStretch()
+
+        btn_reload = QPushButton("🔄 Aktualisieren")
+        btn_reload.setFixedHeight(34)
+        btn_reload.setStyleSheet(_btn_style("#607d8b", "#546e7a"))
+        btn_reload.clicked.connect(self._refresh_ausfaelle)
+        title_row.addWidget(btn_reload)
+
+        btn_excel = QPushButton("📤 Excel-Export")
+        btn_excel.setFixedHeight(34)
+        btn_excel.setStyleSheet(_btn_style("#107e3e", "#0a6630"))
+        btn_excel.clicked.connect(self._export_ausfaelle_excel)
+        title_row.addWidget(btn_excel)
+        vl.addLayout(title_row)
+
+        sub = QLabel("Bulmor-Fahrzeuge (5 gesamt)  •  Fahrbereit = 5 − Ausfälle  •  "
+                     "basiert auf eingetragenen Statusänderungen; heute immer angezeigt")
+        sub.setStyleSheet("color:#888; font-size:11px;")
+        vl.addWidget(sub)
+
+        # Filter-Bar
+        fb = QFrame()
+        fb.setStyleSheet("QFrame{background:#f5f6fa; border:1px solid #e0e4ec; border-radius:4px;}")
+        fl = QHBoxLayout(fb)
+        fl.setContentsMargins(10, 6, 10, 6)
+        fl.setSpacing(8)
+        _ls = "border:none; font-size:11px; color:#444;"
+
+        fl.addWidget(self._lbl("Jahr:", _ls))
+        self._af_jahr = QComboBox()
+        self._af_jahr.setMinimumWidth(80)
+        self._af_jahr.setStyleSheet(
+            "QComboBox{background:white;border:1px solid #ccc;border-radius:3px;"
+            "padding:2px 6px;font-size:11px;}")
+        fl.addWidget(self._af_jahr)
+
+        fl.addSpacing(8)
+        fl.addWidget(self._lbl("Monat:", _ls))
+        self._af_monat = QComboBox()
+        self._af_monat.setMinimumWidth(110)
+        self._af_monat.addItem("Alle", None)
+        for i, mn in enumerate(MONATE, 1):
+            self._af_monat.addItem(f"{i:02d} – {mn}", i)
+        self._af_monat.setStyleSheet(
+            "QComboBox{background:white;border:1px solid #ccc;border-radius:3px;"
+            "padding:2px 6px;font-size:11px;}")
+        fl.addWidget(self._af_monat)
+
+        fl.addSpacing(8)
+        fl.addWidget(self._lbl("Tag:", _ls))
+        self._af_tag = QComboBox()
+        self._af_tag.setMinimumWidth(70)
+        self._af_tag.addItem("Alle", None)
+        for d in range(1, 32):
+            self._af_tag.addItem(f"{d:02d}", d)
+        self._af_tag.setStyleSheet(
+            "QComboBox{background:white;border:1px solid #ccc;border-radius:3px;"
+            "padding:2px 6px;font-size:11px;}")
+        fl.addWidget(self._af_tag)
+
+        fl.addStretch()
+        self._af_count_lbl = QLabel("")
+        self._af_count_lbl.setStyleSheet("border:none; font-size:11px; color:#888;")
+        fl.addWidget(self._af_count_lbl)
+        vl.addWidget(fb)
+
+        # Tabelle
+        STATUS_COLS = ["fahrbereit", "defekt", "werkstatt", "ausser_dienst", "sonstiges"]
+        self._af_status_cols = STATUS_COLS
+        headers = ["Datum"] + [STATUS_META[s]["label"] for s in STATUS_COLS] + ["Notizen / Ausfallgrund"]
+
+        self._af_table = QTableWidget()
+        self._af_table.setColumnCount(len(headers))
+        self._af_table.setHorizontalHeaderLabels(headers)
+        self._af_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._af_table.setAlternatingRowColors(True)
+        self._af_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._af_table.verticalHeader().setVisible(False)
+        self._af_table.setStyleSheet("""
+            QTableWidget { border: 1px solid #dce8f5; border-radius: 4px; }
+            QTableWidget::item { padding: 4px 8px; }
+            QHeaderView::section {
+                background: #1565a8; color: white; font-weight: bold;
+                font-size: 11px; padding: 6px 8px; border: none;
+            }
+            QTableWidget::item:alternate { background: #f0f5fc; }
+            QTableWidget::item:selected  { background: #cfe3f8; color: #000; }
+        """)
+        hh = self._af_table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self._af_table.setColumnWidth(0, 100)
+        for i in range(1, len(headers) - 1):
+            hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
+            self._af_table.setColumnWidth(i, 115)
+        # Notizen-Spalte dehnt sich
+        hh.setSectionResizeMode(len(headers) - 1, QHeaderView.ResizeMode.Stretch)
+        vl.addWidget(self._af_table, 1)
+
+        # Legende
+        leg_row = QHBoxLayout()
+        for sk in STATUS_COLS:
+            m = STATUS_META[sk]
+            dot = QLabel("●")
+            dot.setStyleSheet(f"color:{m['color']}; border:none; font-size:14px;")
+            nm  = m["label"].split(" ", 1)[-1] if " " in m["label"] else m["label"]
+            lbl = QLabel(nm)
+            lbl.setStyleSheet(f"color:{m['color']}; border:none; font-size:11px; font-weight:bold;")
+            leg_row.addWidget(dot)
+            leg_row.addWidget(lbl)
+            leg_row.addSpacing(14)
+        leg_row.addStretch()
+        vl.addLayout(leg_row)
+
+        # Daten + Signale
+        self._af_daten: list[dict] = []
+        self._af_jahr.currentIndexChanged.connect(self._af_filter_apply)
+        self._af_monat.currentIndexChanged.connect(self._af_filter_apply)
+        self._af_tag.currentIndexChanged.connect(self._af_filter_apply)
+
+        return w
+
+    @staticmethod
+    def _lbl(text: str, style: str) -> QLabel:
+        l = QLabel(text)
+        l.setStyleSheet(style)
+        return l
+
+    def _lade_statistik_daten(self) -> list[dict]:
+        """Nur Bulmor-Fahrzeuge: Fahrbereit = BULMOR_GESAMT - Ausfälle.
+        Ohne eingetragenen Status → fahrbereit. Heute immer angezeigt.
+        Notizen = Kennzeichen + Grund aller nicht-fahrbereiten Fahrzeuge.
+        """
+        BULMOR_GESAMT = 5
+        alle_fz = lade_alle_fahrzeuge()
+        bulmors = [f for f in alle_fz
+                   if "bulmor" in (f.get("typ") or "").lower()]
+        # Fallback: alle nehmen wenn Typ nicht gesetzt
+        if not bulmors:
+            bulmors = alle_fz
+
+        fids = [f["id"] for f in bulmors]
+        kz_map = {f["id"]: (f.get("kennzeichen") or f.get("typ") or str(f["id"]))
+                  for f in bulmors}
+
+        alle_eintraege: dict[int, list[dict]] = {}
+        for fid in fids:
+            alle_eintraege[fid] = sorted(
+                lade_status_historie(fid),
+                key=lambda e: (e.get("von") or "", e.get("erstellt_am") or "")
+            )
+
+        # Frühestes Datum aller Einträge → lückenloser Bereich bis heute
+        from datetime import date as _date, timedelta as _td
+        fruehestes = None
+        for eintraege in alle_eintraege.values():
+            for e in eintraege:
+                d = (e.get("von") or "")[:10]
+                if len(d) == 10:
+                    if fruehestes is None or d < fruehestes:
+                        fruehestes = d
+
+        heute = _date.today()
+        start = _date.fromisoformat(fruehestes) if fruehestes else heute
+
+        # Jeden Tag von start bis heute erzeugen
+        alle_daten = []
+        cur = start
+        while cur <= heute:
+            alle_daten.append(cur.isoformat())
+            cur += _td(days=1)
+
+        result = []
+        for datum in sorted(alle_daten, reverse=True):
+            counts = {s: 0 for s in STATUS_KEYS}
+            notizen_liste = []
+            for fid in fids:
+                aktuell = None
+                for e in sorted(alle_eintraege[fid],
+                                key=lambda x: (x.get("von") or "",
+                                               x.get("erstellt_am") or ""),
+                                reverse=True):
+                    if (e.get("von") or "")[:10] <= datum:
+                        aktuell = e
+                        break
+                if aktuell:
+                    s = aktuell.get("status") or "fahrbereit"
+                    if s not in STATUS_KEYS:
+                        s = "sonstiges"
+                    counts[s] += 1
+                    if s != "fahrbereit":
+                        grund = (aktuell.get("grund") or "").strip()
+                        kz = kz_map.get(fid, str(fid))
+                        notizen_liste.append(f"{kz}: {grund}" if grund else kz)
+                else:
+                    # Kein Status eingetragen → fahrbereit
+                    counts["fahrbereit"] += 1
+
+            # Fehlende Bulmors (z.B. nicht in DB) → fahrbereit auffüllen
+            eingetragen = sum(counts.values())
+            if eingetragen < BULMOR_GESAMT:
+                counts["fahrbereit"] += BULMOR_GESAMT - eingetragen
+
+            result.append({
+                "datum":   datum,
+                **counts,
+                "notizen": "  |  ".join(notizen_liste),
+            })
+        return result
+
+    def _refresh_ausfaelle(self):
+        self._af_daten = self._lade_statistik_daten()
+        from datetime import date as _date
+        aktuelles_jahr = str(_date.today().year)
+        jahre = sorted({d["datum"][:4] for d in self._af_daten
+                        if len(d.get("datum", "")) >= 4}, reverse=True)
+        self._af_jahr.blockSignals(True)
+        self._af_jahr.clear()
+        self._af_jahr.addItem("Alle")
+        for j in jahre:
+            self._af_jahr.addItem(j)
+        # Aktuelles Jahr vorauswählen
+        idx = self._af_jahr.findText(aktuelles_jahr)
+        if idx >= 0:
+            self._af_jahr.setCurrentIndex(idx)
+        self._af_jahr.blockSignals(False)
+        self._af_filter_apply()
+
+    def _af_filter_apply(self):
+        j = self._af_jahr.currentText()
+        m = self._af_monat.currentData()
+        t = self._af_tag.currentData()
+        gefiltert = []
+        for row in self._af_daten:
+            d = row.get("datum", "")
+            if not d:
+                continue
+            if j != "Alle" and not d.startswith(j):
+                continue
+            if m is not None and (len(d) < 7 or int(d[5:7]) != m):
+                continue
+            if t is not None and (len(d) < 10 or int(d[8:10]) != t):
+                continue
+            gefiltert.append(row)
+        self._af_fill_table(gefiltert)
+        self._af_count_lbl.setText(
+            f"{len(gefiltert)} / {len(self._af_daten)} Einträge")
+
+    def _af_fill_table(self, daten: list[dict]):
+        STATUS_COLS = self._af_status_cols
+        self._af_table.setRowCount(len(daten))
+        from datetime import date as _date
+        heute = _date.today().isoformat()
+        for r, row in enumerate(daten):
+            datum = row["datum"]
+            di = QTableWidgetItem(_fmt_date(datum))
+            di.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if datum == heute:
+                di.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+                di.setForeground(QColor(FIORI_BLUE))
+            self._af_table.setItem(r, 0, di)
+
+            for c, sk in enumerate(STATUS_COLS, 1):
+                val = row.get(sk, 0)
+                item = QTableWidgetItem(str(val) if val > 0 else "–")
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if val > 0 and sk == "fahrbereit":
+                    item.setForeground(QColor(STATUS_META["fahrbereit"]["color"]))
+                    item.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+                elif val > 0:
+                    item.setForeground(QColor(STATUS_META[sk]["color"]))
+                    item.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+                self._af_table.setItem(r, c, item)
+
+            notiz = row.get("notizen", "")
+            n_item = QTableWidgetItem(notiz if notiz else "–")
+            n_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+            if notiz:
+                n_item.setForeground(QColor("#555555"))
+            else:
+                n_item.setForeground(QColor("#aaaaaa"))
+            self._af_table.setItem(r, len(STATUS_COLS) + 1, n_item)
+
+    def _export_ausfaelle_excel(self):
+        # Daten ggf. nachladen
+        if not self._af_daten:
+            self._refresh_ausfaelle()
+        if not self._af_daten:
+            QMessageBox.information(
+                self, "Keine Daten",
+                "Es sind noch keine Statuseinträge vorhanden."
+            )
+            return
+
+        # ── Zeitraum-Dialog ──────────────────────────────────────────────────
+        from datetime import date as _date
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Zeitraum wählen – Excel-Export")
+        dlg.setMinimumWidth(320)
+        dlg_vl = QVBoxLayout(dlg)
+        dlg_vl.setContentsMargins(18, 14, 18, 14)
+        dlg_vl.setSpacing(10)
+
+        dlg_vl.addWidget(QLabel("Zeitraum für den Excel-Export:"))
+
+        form = QFormLayout()
+        form.setSpacing(8)
+
+        von_edit = QDateEdit()
+        von_edit.setCalendarPopup(True)
+        von_edit.setDisplayFormat("dd.MM.yyyy")
+        von_edit.setDate(QDate(_date.today().year, 1, 1))
+
+        bis_edit = QDateEdit()
+        bis_edit.setCalendarPopup(True)
+        bis_edit.setDisplayFormat("dd.MM.yyyy")
+        bis_edit.setDate(QDate.currentDate())
+
+        form.addRow("Von:", von_edit)
+        form.addRow("Bis:", bis_edit)
+        dlg_vl.addLayout(form)
+
+        btn_row = QHBoxLayout()
+        ok_btn = QPushButton("Exportieren")
+        ok_btn.setStyleSheet(_btn_style(FIORI_BLUE, "#0855a9"))
+        ok_btn.setFixedHeight(36)
+        ok_btn.clicked.connect(dlg.accept)
+        ab_btn = QPushButton("Abbrechen")
+        ab_btn.setFixedHeight(36)
+        ab_btn.clicked.connect(dlg.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(ab_btn)
+        btn_row.addWidget(ok_btn)
+        dlg_vl.addLayout(btn_row)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        qv = von_edit.date()
+        qb = bis_edit.date()
+        von_iso = f"{qv.year()}-{qv.month():02d}-{qv.day():02d}"
+        bis_iso = f"{qb.year()}-{qb.month():02d}-{qb.day():02d}"
+
+        gefiltert = [
+            row for row in self._af_daten
+            if von_iso <= row.get("datum", "") <= bis_iso
+        ]
+
+        if not gefiltert:
+            QMessageBox.information(self, "Keine Daten",
+                                    "Im gewählten Zeitraum sind keine Einträge vorhanden.")
+            return
+
+        # Speicherort wählen
+        default_name = (f"Bulmor_Ausfallstatistik_"
+                        f"{qv.day():02d}.{qv.month():02d}.{qv.year()}_"
+                        f"bis_{qb.day():02d}.{qb.month():02d}.{qb.year()}.xlsx")
+        pfad, _ = QFileDialog.getSaveFileName(
+            self,
+            "Speicherort wählen – Ausfallstatistik",
+            os.path.join(os.path.expanduser("~"), "Desktop", default_name),
+            "Excel-Datei (*.xlsx)"
+        )
+        if not pfad:
+            return
+
+        try:
+            import openpyxl
+            from openpyxl.styles import (Font as XFont, PatternFill,
+                                         Alignment, Border, Side)
+
+            STATUS_COLS = self._af_status_cols
+            col_headers = (["Datum"]
+                           + [STATUS_META[s]["label"] for s in STATUS_COLS]
+                           + ["Notizen / Ausfallgrund"])
+            num_cols = len(col_headers)
+
+            # ARGB-Farben (openpyxl erwartet 8-stellig)
+            _HC_ARGB = {
+                "fahrbereit":    "FF107E3E",
+                "defekt":        "FFBB0000",
+                "werkstatt":     "FFE67E22",
+                "ausser_dienst": "FF7B1FA2",
+                "sonstiges":     "FF5C6BC0",
+            }
+            _HDR_ARGB = {
+                "fahrbereit":    "FF107E3E",
+                "defekt":        "FFBB0000",
+                "werkstatt":     "FFE67E22",
+                "ausser_dienst": "FF7B1FA2",
+                "sonstiges":     "FF5C6BC0",
+                "datum":         "FF1565A8",
+                "notizen":       "FF37474F",
+            }
+
+            def _col_letter(n: int) -> str:
+                """1-basierte Spaltennummer → Buchstabe (A, B, …, Z, AA, …)"""
+                result = ""
+                while n > 0:
+                    n, rem = divmod(n - 1, 26)
+                    result = chr(65 + rem) + result
+                return result
+
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Ausfallstatistik"
+
+            # Titelzeile
+            last_col = _col_letter(num_cols)
+            ws.merge_cells(f"A1:{last_col}1")
+            tc = ws["A1"]
+            tc.value = "Bulmor-Fahrzeuge – Ausfallstatistik"
+            tc.font = XFont(bold=True, size=14, color="FF1565A8")
+            tc.alignment = Alignment(horizontal="center", vertical="center")
+            ws.row_dimensions[1].height = 26
+
+            # Filterinfo-Zeile
+            ws.merge_cells(f"A2:{last_col}2")
+            filter_text = (f"Zeitraum: {qv.day():02d}.{qv.month():02d}.{qv.year()} "
+                           f"– {qb.day():02d}.{qb.month():02d}.{qb.year()}"
+                           f"  |  {len(gefiltert)} Einträge")
+            fc = ws["A2"]
+            fc.value = filter_text
+            fc.font = XFont(italic=True, size=10, color="FF666666")
+            fc.alignment = Alignment(horizontal="left", vertical="center")
+            ws.row_dimensions[2].height = 16
+
+            # Spaltenköpfe
+            thin_w = Side(style="thin", color="FFDDDDDD")
+            bd = Border(left=thin_w, right=thin_w, top=thin_w, bottom=thin_w)
+            for ci, ch in enumerate(col_headers, 1):
+                cell = ws.cell(row=3, column=ci, value=ch)
+                cell.font = XFont(bold=True, color="FFFFFFFF", size=11)
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.border = bd
+                if ci == 1:
+                    argb = "FF1565A8"
+                elif ci <= len(STATUS_COLS) + 1:
+                    argb = _HDR_ARGB.get(STATUS_COLS[ci - 2], "FF607D8B")
+                else:
+                    argb = "FF37474F"
+                cell.fill = PatternFill(fill_type="solid", fgColor=argb)
+            ws.row_dimensions[3].height = 22
+
+            # Datenzeilen
+            alt_fill = PatternFill(fill_type="solid", fgColor="FFEEF4FB")
+            # Maximale Inhaltsbreite je Spalte verfolgen (Startwert = Kopfbreite)
+            col_max_len = {ci: len(ch) for ci, ch in enumerate(col_headers, 1)}
+            for ri_offset, row in enumerate(gefiltert):
+                ri = ri_offset + 4   # beginnt ab Zeile 4
+                alt = (ri_offset % 2 == 1)
+
+                # Datum
+                datum_txt = _fmt_date(row["datum"])
+                dc = ws.cell(row=ri, column=1, value=datum_txt)
+                dc.alignment = Alignment(horizontal="center", vertical="center")
+                dc.border = bd
+                if alt:
+                    dc.fill = alt_fill
+                col_max_len[1] = max(col_max_len[1], len(datum_txt))
+
+                # Status-Spalten
+                for ci, sk in enumerate(STATUS_COLS, 2):
+                    val = row.get(sk, 0)
+                    sc = ws.cell(row=ri, column=ci,
+                                 value=val if val > 0 else None)
+                    sc.alignment = Alignment(horizontal="center",
+                                             vertical="center")
+                    sc.border = bd
+                    if alt:
+                        sc.fill = alt_fill
+                    if val and val > 0:
+                        sc.font = XFont(bold=True,
+                                        color=_HC_ARGB.get(sk, "FF000000"))
+                    col_max_len[ci] = max(col_max_len[ci], len(str(val)) if val else 0)
+
+                # Notizen
+                notiz_val = row.get("notizen") or ""
+                nc = ws.cell(row=ri, column=num_cols,
+                             value=notiz_val if notiz_val else "")
+                nc.alignment = Alignment(horizontal="left", vertical="top",
+                                         wrap_text=True)
+                nc.border = bd
+                if alt:
+                    nc.fill = alt_fill
+                col_max_len[num_cols] = max(col_max_len[num_cols], len(notiz_val))
+                # Zeilenhoehe an Notiz-Laenge anpassen (Zeilenumbrueche im Text zaehlen)
+                zeilen_anzahl = max(1, notiz_val.count("  |  ") + 1,
+                                    notiz_val.count("\n") + 1)
+                ws.row_dimensions[ri].height = max(16, 16 * zeilen_anzahl)
+
+            # Spaltenbreiten – automatisch aus Inhaltslaenge
+            NOTIZEN_MAX = 60   # Notizen-Spalte maximal 60 Zeichen breit
+            for ci in range(1, num_cols + 1):
+                ltr = _col_letter(ci)
+                raw = col_max_len.get(ci, 8)
+                if ci == num_cols:
+                    # Notizen: auf sinnvollen Max-Wert begrenzen
+                    w = min(raw + 4, NOTIZEN_MAX)
+                else:
+                    w = max(raw + 4, 10)  # mind. 10, etwas Puffer
+                ws.column_dimensions[ltr].width = w
+
+            # Autofilter
+            ws.auto_filter.ref = f"A3:{last_col}3"
+
+            wb.save(pfad)
+            QMessageBox.information(
+                self, "Export erfolgreich",
+                f"✓ Ausfallstatistik gespeichert:\n{pfad}\n\n{len(gefiltert)} Zeilen exportiert."
+            )
+            os.startfile(pfad)
+        except Exception as e:
+            import traceback
+            QMessageBox.critical(
+                self, "Fehler beim Excel-Export",
+                f"Fehler:\n{e}\n\n{traceback.format_exc()}"
+            )
 
     # ── Refresh ────────────────────────────────────────────────────────────────
 
